@@ -957,4 +957,51 @@ mod test {
         assert!(log1.is_some());
         assert!(log2.is_some());
     }
+
+    // ── Issue #379: footprint regression test for the `announce` hot path ──
+    //
+    // Baseline fixture: ceilings below are an initial, intentionally generous
+    // budget for `announce` on soroban-sdk 25.3.1, pending the first real CI
+    // run (see the matching comment in attestation-engine-v2's footprint
+    // test for the recalibration plan). `announce` has no persistent storage
+    // writes, so its worst case is dominated by event payload size rather
+    // than ledger reads — this baseline uses the maximum metadata size
+    // exercised elsewhere in this test suite.
+    mod footprint {
+        use super::*;
+
+        const ANNOUNCE_CPU_INSNS_CEILING: u64 = 20_000_000;
+        const ANNOUNCE_MEM_BYTES_CEILING: u64 = 10_000_000;
+
+        #[test]
+        fn footprint_announce_within_ceiling() {
+            let Setup {
+                env,
+                client,
+                caller,
+            } = setup();
+
+            env.budget().reset_default();
+            client.announce(
+                &caller,
+                &1u64,
+                &stealth_address(&env),
+                &valid_ephemeral_key(&env),
+                &valid_metadata(&env),
+            );
+            let cpu = env.budget().cpu_instruction_cost();
+            let mem = env.budget().memory_bytes_cost();
+
+            assert!(
+                cpu <= ANNOUNCE_CPU_INSNS_CEILING,
+                "announce cpu_insns={cpu} exceeds baseline ceiling={ANNOUNCE_CPU_INSNS_CEILING} \
+                 — investigate before raising the ceiling"
+            );
+            assert!(
+                mem <= ANNOUNCE_MEM_BYTES_CEILING,
+                "announce mem_bytes={mem} exceeds baseline ceiling={ANNOUNCE_MEM_BYTES_CEILING} \
+                 — investigate before raising the ceiling"
+            );
+        }
+    }
 }

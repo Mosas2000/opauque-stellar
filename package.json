@@ -9,6 +9,7 @@
     "deploy:rollback": "node scripts/rollback-deployment.mjs --dry-run",
     "health:rpc": "node scripts/probe-horizon-rpc.mjs",
     "verify:deployment": "tsx scripts/verify-deployment-manifest.ts",
+    "verify:sdk-readonly-version": "tsx scripts/verify-sdk-readonly-version.ts",
     "verify:deployment:strict": "tsx scripts/verify-deployment-manifest.ts --strict",
     "verify:security-audit": "tsx scripts/verify-security-audit.ts --network mainnet",
     "update:manifest-wasm": "tsx scripts/update-manifest-wasm-hashes.ts",

@@ -1686,4 +1686,63 @@ mod test {
         // suppress unused warning
         let _ = schema_client;
     }
+
+    // ── Issue #379: footprint regression test for the `attest` hot path ────
+    //
+    // Baseline fixture: ceilings below are an initial, intentionally generous
+    // budget for `attest` on soroban-sdk 25.3.1, pending the first real CI
+    // run. After CI prints the measured cpu_insns/mem_bytes for this test,
+    // tighten these constants (e.g. measured * 1.15) in a follow-up PR so
+    // the gate actually catches regressions rather than just gross blowups.
+    // Worst case: `attest` with the maximum-size schema data the engine
+    // accepts is the path most likely to approach Soroban's per-invocation
+    // resource limits as attestation payloads grow; this test measures the
+    // common case (a single short string field) as the tracked baseline.
+    mod footprint {
+        use super::*;
+
+        const ATTEST_CPU_INSNS_CEILING: u64 = 50_000_000;
+        const ATTEST_MEM_BYTES_CEILING: u64 = 20_000_000;
+
+        #[test]
+        fn footprint_attest_within_ceiling() {
+            let (env, authority, _engine_id, schema_client, engine_client) = setup();
+            let schema_id = setup_schema(
+                &env,
+                &schema_client,
+                &authority,
+                "FootprintSchema",
+                DEFAULT_DEFS,
+                true,
+            );
+            let stealth_hash = BytesN::from_array(&env, &[0xAAu8; 32]);
+            let data = encode_data(&env, DEFAULT_DEFS, &[("field1", "hello")]);
+            let ref_uid = BytesN::from_array(&env, &[0u8; 32]);
+
+            // Reset accounting so setup (schema registration) isn't counted —
+            // we only want the cost of the `attest` call itself.
+            env.budget().reset_default();
+            let _uid = engine_client.attest(
+                &authority,
+                &schema_id,
+                &stealth_hash,
+                &data,
+                &0u32,
+                &ref_uid,
+            );
+            let cpu = env.budget().cpu_instruction_cost();
+            let mem = env.budget().memory_bytes_cost();
+
+            assert!(
+                cpu <= ATTEST_CPU_INSNS_CEILING,
+                "attest cpu_insns={cpu} exceeds baseline ceiling={ATTEST_CPU_INSNS_CEILING} \
+                 — investigate before raising the ceiling"
+            );
+            assert!(
+                mem <= ATTEST_MEM_BYTES_CEILING,
+                "attest mem_bytes={mem} exceeds baseline ceiling={ATTEST_MEM_BYTES_CEILING} \
+                 — investigate before raising the ceiling"
+            );
+        }
+    }
 }
