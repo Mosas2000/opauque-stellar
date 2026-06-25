@@ -17,12 +17,14 @@
     "prepare:frontend": "tsx scripts/prepare-frontend-artifacts.ts",
     "test:circuits": "npm run test:regression --prefix circuits",
     "ci:local": "bash scripts/ci-local.sh",
+    "audit:supply-chain": "bash scripts/check-npm-audit.sh",
     "check:wasm-sizes": "tsx scripts/check-wasm-sizes.ts",
     "sign:artifacts": "tsx scripts/sign-release-artifacts.ts",
     "verify:signatures": "tsx scripts/verify-artifact-signatures.ts"
   },
   "devDependencies": {
     "@types/node": "^22.15.0",
+    "audit-ci": "^7.1.0",
     "tsx": "^4.19.4",
     "typescript": "^5.8.3"
   }

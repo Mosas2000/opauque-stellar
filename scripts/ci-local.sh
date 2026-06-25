@@ -94,6 +94,7 @@ fi
 
 # ----- Supply chain & manifests -----
 if $RUN_SUPPLY; then
+  check "npm supply-chain audit" npm run audit:supply-chain
   check "verify deployment manifest" npm run verify:deployment
   check "cargo audit" bash -c 'which cargo-audit >/dev/null 2>&1 || { echo "cargo-audit not installed. Run: cargo install cargo-audit --locked"; exit 1; }; cargo audit'
   check "cargo deny" bash -c 'which cargo-deny >/dev/null 2>&1 || { echo "cargo-deny not installed. Run: cargo install cargo-deny --locked"; exit 1; }; cargo deny check'

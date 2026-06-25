@@ -1,0 +1,17 @@
+{
+  // npm supply-chain audit policy (audit-ci). CI and `npm run audit:supply-chain` fail on
+  // unreviewed high/critical vulnerabilities in production dependency trees.
+  //
+  // Allowlist reviewed exceptions with expiry (audit-ci NSPRecord format):
+  //   { "GHSA-xxxx-xxxx-xxxx": { "active": true, "notes": "why accepted", "expiry": "2026-12-31" } }
+  // Expired entries are rejected by audit-ci when `active` is true and the date has passed.
+  //
+  // Path-specific suppressions (prefer advisory-wide only when justified):
+  //   "GHSA-xxxx|package>transitive>dep"
+  "$schema": "https://github.com/IBM/audit-ci/raw/main/docs/schema.json",
+  "high": true,
+  "critical": true,
+  "skip-dev": true,
+  "report-type": "important",
+  "allowlist": []
+}

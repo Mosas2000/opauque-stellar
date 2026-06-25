@@ -25,12 +25,33 @@ jobs:
           config-path: .gitleaks.toml
           verbose: true
 
+  npm-supply-chain-audit:
+    name: NPM Supply Chain Audit
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Install root dependencies
+        run: npm ci
+
+      - name: Install frontend dependencies
+        run: npm ci --prefix frontend
+
+      - name: Audit production dependency trees
+        run: npm run audit:supply-chain
+
   ci-success-gate:
     name: CI Success Gate
     runs-on: ubuntu-latest
-    needs: [gitleaks]
+    needs: [gitleaks, npm-supply-chain-audit]
     if: always()
     steps:
       - name: Check all jobs passed
-        if: needs.gitleaks.result != 'success'
+        if: needs.gitleaks.result != 'success' || needs.npm-supply-chain-audit.result != 'success'
         run: exit 1
