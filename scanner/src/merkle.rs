@@ -79,7 +79,10 @@ impl std::fmt::Display for MerkleError {
                 write!(f, "Merkle tree is full: capacity={capacity}, count={count}")
             }
             MerkleError::IndexOutOfBounds { index, count } => {
-                write!(f, "Merkle proof index {index} out of bounds (leaf count={count})")
+                write!(
+                    f,
+                    "Merkle proof index {index} out of bounds (leaf count={count})"
+                )
             }
         }
     }
@@ -298,13 +301,15 @@ mod tests {
             decimal_bytes("5"),
         ]);
         let mut tree = MerkleTree::new(2);
-        let idx = tree.insert_v2_leaf(
-            decimal_bytes("1"),
-            decimal_bytes("2"),
-            decimal_bytes("3"),
-            decimal_bytes("4"),
-            decimal_bytes("5"),
-        ).unwrap();
+        let idx = tree
+            .insert_v2_leaf(
+                decimal_bytes("1"),
+                decimal_bytes("2"),
+                decimal_bytes("3"),
+                decimal_bytes("4"),
+                decimal_bytes("5"),
+            )
+            .unwrap();
         assert_eq!(idx, 0);
         assert_eq!(tree.leaves[0], leaf);
     }
@@ -380,13 +385,22 @@ mod tests {
         let mut tree = MerkleTree::new(1);
         tree.insert([1u8; 32]).unwrap();
         let result = tree.insert([2u8; 32]);
-        assert!(matches!(result, Err(MerkleError::TreeFull { capacity: 2, count: 2 })));
+        assert!(matches!(
+            result,
+            Err(MerkleError::TreeFull {
+                capacity: 2,
+                count: 2
+            })
+        ));
     }
 
     #[test]
     fn proof_out_of_bounds_returns_error() {
         let tree = MerkleTree::new(2);
         let result = tree.proof(0);
-        assert!(matches!(result, Err(MerkleError::IndexOutOfBounds { index: 0, count: 0 })));
+        assert!(matches!(
+            result,
+            Err(MerkleError::IndexOutOfBounds { index: 0, count: 0 })
+        ));
     }
 }

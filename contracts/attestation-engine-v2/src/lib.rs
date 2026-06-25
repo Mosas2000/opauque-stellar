@@ -19,6 +19,7 @@ pub struct AttestationEngineV2;
 /// Current event schema version — increment when the event topic/data layout changes.
 /// Scanners should reject events with an unrecognised version rather than misparse them.
 const EVENT_VERSION: u32 = 1;
+const MAX_ATTESTATION_PAYLOAD_LEN: u32 = 512;
 
 #[contracttype]
 #[derive(Clone)]
@@ -33,6 +34,15 @@ pub struct Attestation {
     pub revocation_ledger: u32,
     pub ref_uid: BytesN<32>,
     pub issuance_sequence: u64,
+}
+
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct StorageStats {
+    pub issued_count: u64,
+    pub active_count: u64,
+    pub revoked_count: u64,
+    pub max_attestation_data_len: u32,
 }
 
 #[contracterror]
@@ -62,6 +72,18 @@ fn attestation_key(uid: &BytesN<32>) -> (Symbol, BytesN<32>) {
 
 fn registry_key(env: &Env) -> Symbol {
     Symbol::new(env, "config")
+}
+
+fn issued_count_key(env: &Env) -> Symbol {
+    Symbol::new(env, "att_count")
+}
+
+fn active_count_key(env: &Env) -> Symbol {
+    Symbol::new(env, "att_active")
+}
+
+fn revoked_count_key(env: &Env) -> Symbol {
+    Symbol::new(env, "att_revoked")
 }
 
 fn save_config(env: &Env, cfg: &GovernanceConfig) {
@@ -182,6 +204,16 @@ fn next_issuance_sequence(env: &Env, schema_id: &BytesN<32>, stealth_hash: &Byte
     next
 }
 
+fn bump_instance_counter(env: &Env, key: Symbol, delta: i64) {
+    let current: u64 = env.storage().instance().get(&key).unwrap_or(0);
+    let next = if delta.is_negative() {
+        current.saturating_sub(delta.unsigned_abs())
+    } else {
+        current.saturating_add(delta as u64)
+    };
+    env.storage().instance().set(&key, &next);
+}
+
 #[contractimpl]
 impl AttestationEngineV2 {
     /// Update mutable governance fields. Requires admin or governance auth.
@@ -266,7 +298,7 @@ impl AttestationEngineV2 {
         if cfg.paused_attestation {
             return Err(AttestationError::Paused);
         }
-        if data.len() > 512 {
+        if data.len() > MAX_ATTESTATION_PAYLOAD_LEN {
             return Err(AttestationError::DataTooLarge);
         }
         let ledger = env.ledger().sequence();
@@ -308,6 +340,8 @@ impl AttestationEngineV2 {
             issuance_sequence,
         };
         env.storage().persistent().set(&key, &attestation);
+        bump_instance_counter(&env, issued_count_key(&env), 1);
+        bump_instance_counter(&env, active_count_key(&env), 1);
         env.events().publish(
             (Symbol::new(&env, "AttestationCreated"), EVENT_VERSION),
             (uid.clone(), schema_id, issuer, stealth_address_hash),
@@ -320,6 +354,41 @@ impl AttestationEngineV2 {
             .persistent()
             .get(&attestation_key(&uid))
             .ok_or(AttestationError::AttestationNotFound)
+    }
+
+    /// Total number of attestations ever issued by this contract.
+    ///
+    /// Maintained during writes; this read performs no storage scan.
+    pub fn get_attestation_count(env: Env) -> u64 {
+        env.storage()
+            .instance()
+            .get(&issued_count_key(&env))
+            .unwrap_or(0)
+    }
+
+    /// Bounded storage/capacity metrics for operator dashboards.
+    ///
+    /// All values are maintained as counters or constants, so this read has no
+    /// unbounded iteration regardless of attestation volume.
+    pub fn get_storage_stats(env: Env) -> StorageStats {
+        StorageStats {
+            issued_count: env
+                .storage()
+                .instance()
+                .get(&issued_count_key(&env))
+                .unwrap_or(0),
+            active_count: env
+                .storage()
+                .instance()
+                .get(&active_count_key(&env))
+                .unwrap_or(0),
+            revoked_count: env
+                .storage()
+                .instance()
+                .get(&revoked_count_key(&env))
+                .unwrap_or(0),
+            max_attestation_data_len: MAX_ATTESTATION_PAYLOAD_LEN,
+        }
     }
 
     pub fn revoke_attestation(
@@ -357,6 +426,8 @@ impl AttestationEngineV2 {
         }
         attestation.revocation_ledger = env.ledger().sequence();
         env.storage().persistent().set(&key, &attestation);
+        bump_instance_counter(&env, active_count_key(&env), -1);
+        bump_instance_counter(&env, revoked_count_key(&env), 1);
         env.events().publish(
             (Symbol::new(&env, "AttestationRevoked"), EVENT_VERSION),
             (uid, revoker),
@@ -1024,6 +1095,60 @@ mod test {
             &ref_uid,
         );
         engine_client.revoke_attestation(&authority, &uid);
+    }
+
+    #[test]
+    fn test_attestation_count_and_storage_stats_track_issuance_and_revocation() {
+        let (env, authority, _engine_id, schema_client, engine_client) = setup();
+        let schema_id = setup_schema(
+            &env,
+            &schema_client,
+            &authority,
+            "MetricsSchema",
+            DEFAULT_DEFS,
+            true,
+        );
+        assert_eq!(engine_client.get_attestation_count(), 0);
+        let initial = engine_client.get_storage_stats();
+        assert_eq!(initial.issued_count, 0);
+        assert_eq!(initial.active_count, 0);
+        assert_eq!(initial.revoked_count, 0);
+        assert_eq!(
+            initial.max_attestation_data_len,
+            MAX_ATTESTATION_PAYLOAD_LEN
+        );
+
+        let data = encode_data(&env, DEFAULT_DEFS, &[("field1", "metrics")]);
+        let ref_uid = BytesN::from_array(&env, &[0u8; 32]);
+        let uid = engine_client.attest(
+            &authority,
+            &schema_id,
+            &BytesN::from_array(&env, &[0x41u8; 32]),
+            &data,
+            &0u32,
+            &ref_uid,
+        );
+        let second = engine_client.attest(
+            &authority,
+            &schema_id,
+            &BytesN::from_array(&env, &[0x42u8; 32]),
+            &data,
+            &0u32,
+            &ref_uid,
+        );
+        assert!(second.to_array() != [0u8; 32]);
+
+        assert_eq!(engine_client.get_attestation_count(), 2);
+        let issued = engine_client.get_storage_stats();
+        assert_eq!(issued.issued_count, 2);
+        assert_eq!(issued.active_count, 2);
+        assert_eq!(issued.revoked_count, 0);
+
+        engine_client.revoke_attestation(&authority, &uid);
+        let revoked = engine_client.get_storage_stats();
+        assert_eq!(revoked.issued_count, 2);
+        assert_eq!(revoked.active_count, 1);
+        assert_eq!(revoked.revoked_count, 1);
     }
 
     #[test]

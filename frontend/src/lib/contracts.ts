@@ -10,6 +10,7 @@ export const ANNOUNCER_CONTRACT_ID = deployedAddresses.stealthAnnouncer;
 export const REGISTRY_CONTRACT_ID = deployedAddresses.stealthRegistry;
 
 export const SCHEME_ID_SECP256K1 = 1n;
+export const SCHEME_ID_ED25519 = 2n;
 
 export async function announceStealthTransfer(opts: {
   sourcePublicKey: string;

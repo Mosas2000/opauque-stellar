@@ -131,6 +131,19 @@ opaque-stellar/
 
 Build: `stellar contract build` · Test: `cargo test --workspace`
 
+### Protocol Read APIs
+
+Stealth announcement schemes:
+
+| `scheme_id` | Payloads |
+|:------------|:---------|
+| `1` | secp256k1 DKSAP: 20-byte stealth id, 33-byte compressed ephemeral pubkey, `metadata[0]` view tag |
+| `2` | Stellar-native Ed25519 DKSAP: 32-byte raw Stellar account id, 32-byte Ed25519 ephemeral pubkey, `metadata[0]` view tag |
+
+`reputation-verifier.are_nullifiers_spent(ids)` accepts up to 128 nullifier hashes per read and returns spent status in input order.
+
+`attestation-engine-v2.get_attestation_count()` and `get_storage_stats()` expose write-maintained counters, so operator dashboards can read growth metrics without unbounded iteration.
+
 ---
 
 ## Scripts (TypeScript)

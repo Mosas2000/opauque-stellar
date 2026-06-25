@@ -11,10 +11,11 @@
  */
 
 import { secp256k1 } from "@noble/curves/secp256k1";
+import { ed25519 } from "@noble/curves/ed25519";
 import { keccak_256 } from "@noble/hashes/sha3";
 import { hkdf } from "@noble/hashes/hkdf";
-import { sha256 } from "@noble/hashes/sha2";
-import { Keypair } from "@stellar/stellar-sdk";
+import { sha256, sha512 } from "@noble/hashes/sha2";
+import { Keypair, StrKey } from "@stellar/stellar-sdk";
 import { formatStroopsToXlm } from "./decimalParser";
 
 const CURVE = secp256k1;
@@ -97,6 +98,23 @@ export function keysToStealthMetaAddress(
 }
 
 /**
+ * Build a Stellar-native Ed25519 stealth meta-address for scheme_id 2.
+ * Meta-address = raw Ed25519 view public key || raw Ed25519 spend public key
+ * (64 bytes total).
+ */
+export function keysToEd25519StealthMetaAddress(
+  viewingSeed: Uint8Array,
+  spendingSeed: Uint8Array,
+): { V: Uint8Array; S: Uint8Array; metaAddress: Uint8Array } {
+  const V = ed25519.getPublicKey(viewingSeed);
+  const S = ed25519.getPublicKey(spendingSeed);
+  const metaAddress = new Uint8Array(V.length + S.length);
+  metaAddress.set(V, 0);
+  metaAddress.set(S, V.length);
+  return { V, S, metaAddress };
+}
+
+/**
  * Encode the 66-byte stealth meta-address as 0x-prefixed hex.
  */
 export function stealthMetaAddressToHex(metaAddress: Uint8Array): Hex {
@@ -121,6 +139,24 @@ export function parseStealthMetaAddress(metaHex: Hex | string): {
   return {
     viewPubKey: bytes.slice(0, 33),
     spendPubKey: bytes.slice(33, 66),
+  };
+}
+
+export function parseEd25519StealthMetaAddress(metaHex: Hex | string): {
+  viewPubKey: Uint8Array;
+  spendPubKey: Uint8Array;
+} {
+  const raw =
+    typeof metaHex === "string" && metaHex.startsWith("0x")
+      ? metaHex.slice(2)
+      : metaHex;
+  const bytes = hexToBytes(raw as string);
+  if (bytes.length !== 64) {
+    throw new Error("Invalid Ed25519 stealth meta-address: expected 64 bytes");
+  }
+  return {
+    viewPubKey: bytes.slice(0, 32),
+    spendPubKey: bytes.slice(32, 64),
   };
 }
 
@@ -214,6 +250,66 @@ export function computeStealthAddressAndViewTag(
     ephemeralPubKey,
     stealthAddress,
     stealthStellarAddress,
+    viewTag,
+    metadata,
+  };
+}
+
+function bytesToBigIntLE(b: Uint8Array): bigint {
+  let x = 0n;
+  for (let i = b.length - 1; i >= 0; i--) x = (x << 8n) | BigInt(b[i]);
+  return x;
+}
+
+function ed25519ScalarFromSeed(seed: Uint8Array): bigint {
+  const h = sha512(seed).slice(0, 32);
+  h[0] &= 248;
+  h[31] &= 63;
+  h[31] |= 64;
+  return bytesToBigIntLE(h) % ed25519.CURVE.n;
+}
+
+function ed25519HashSharedSecret(sharedSecret: Uint8Array): Uint8Array {
+  const domain = new TextEncoder().encode("opaque-stellar-ed25519-v1");
+  const input = new Uint8Array(domain.length + sharedSecret.length);
+  input.set(domain, 0);
+  input.set(sharedSecret, domain.length);
+  return sha256(input);
+}
+
+/**
+ * Sender-side scheme_id 2 derivation for Stellar-native Ed25519 meta-addresses.
+ */
+export function computeEd25519StealthAddressAndViewTag(
+  recipientMetaAddressHex: Hex | string,
+): {
+  ephemeralSeed: Uint8Array;
+  ephemeralPubKey: Uint8Array;
+  stealthAccount: Uint8Array;
+  stealthStellarAddress: string;
+  viewTag: number;
+  metadata: Uint8Array;
+} {
+  const { viewPubKey, spendPubKey } = parseEd25519StealthMetaAddress(
+    recipientMetaAddressHex as Hex,
+  );
+  const ephemeralSeed = ed25519.utils.randomPrivateKey();
+  const ephemeralPubKey = ed25519.getPublicKey(ephemeralSeed);
+  const ephemeralScalar = ed25519ScalarFromSeed(ephemeralSeed);
+  const viewPoint = ed25519.ExtendedPoint.fromHex(viewPubKey);
+  const shared = viewPoint.multiply(ephemeralScalar).toRawBytes();
+  const sH = ed25519HashSharedSecret(shared);
+  const viewTag = sH[0];
+  const tweak = bytesToBigIntLE(sH) % ed25519.CURVE.n;
+  const spendPoint = ed25519.ExtendedPoint.fromHex(spendPubKey);
+  const stealthPoint = spendPoint.add(ed25519.ExtendedPoint.BASE.multiply(tweak));
+  const stealthAccount = stealthPoint.toRawBytes();
+  const metadata = new Uint8Array([viewTag]);
+  return {
+    ephemeralSeed,
+    ephemeralPubKey,
+    stealthAccount,
+    stealthStellarAddress: StrKey.encodeEd25519PublicKey(Buffer.from(stealthAccount)),
     viewTag,
     metadata,
   };

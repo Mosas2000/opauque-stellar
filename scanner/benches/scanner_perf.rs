@@ -5,19 +5,15 @@
 //! Measures view‑tag filtering, full stealth address derivation, WASM init, and IndexedDB‑like storage simulation.
 //! The benchmarks are used in CI to ensure performance targets for desktop and mobile environments.
 
-use criterion::{criterion_group, criterion_main, Criterion, BenchmarkId, Throughput};
-use rand::{Rng, SeedableRng};
-use rand::rngs::StdRng;
-use k256::{ecdsa::SigningKey, PublicKey, SecretKey};
 use alloy_primitives::Address;
+use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion, Throughput};
+use k256::{ecdsa::SigningKey, PublicKey, SecretKey};
+use rand::rngs::StdRng;
+use rand::{Rng, SeedableRng};
 use std::time::Duration;
 
 // Import the scanner functions we want to benchmark.
-use scanner::{
-    check_announcement_view_tag,
-    derive_stealth_address,
-    ViewTagCheck,
-};
+use scanner::{check_announcement_view_tag, derive_stealth_address, ViewTagCheck};
 
 /// Generate a synthetic announcement with random keys and metadata.
 fn generate_announcements(count: usize) -> Vec<(SigningKey, PublicKey, u8, PublicKey, Address)> {

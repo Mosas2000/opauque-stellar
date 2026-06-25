@@ -43,6 +43,9 @@ jobs:
       - name: Install frontend dependencies
         run: npm ci --prefix frontend
 
+      - name: Smoke-test simulation example
+        run: npm run example:simulate-attest
+
       - name: Audit production dependency trees
         run: npm run audit:supply-chain
 

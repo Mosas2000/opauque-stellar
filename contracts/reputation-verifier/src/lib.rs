@@ -12,6 +12,9 @@ use soroban_sdk::{
 // Default root expiry (~1 day at 5 s/ledger). Overridable via set_root_expiry.
 const DEFAULT_ROOT_EXPIRY_LEDGERS: u32 = 17_280;
 const MAX_ROOT_HISTORY: u32 = 100;
+/// Maximum nullifiers accepted by `are_nullifiers_spent` in one read call.
+/// The bound keeps simulation cost predictable for wallet proof preflight.
+pub const MAX_NULLIFIER_BATCH_SIZE: u32 = 128;
 
 /// Current event schema version — increment when the event topic/data layout changes.
 /// Scanners should reject events with an unrecognised version rather than misparse them.
@@ -82,6 +85,7 @@ pub enum ReputationError {
     AttestationExpired = 6,
     InvalidDatasetHash = 7,
     ContractFrozen = 8,
+    BatchTooLarge = 9,
     /// A direct (non-timelocked) call was rejected because a timelock delay
     /// is configured — the caller must use the schedule/execute flow instead.
     TimelockEnabled = 9,
@@ -304,7 +308,10 @@ impl ReputationVerifier {
     }
 
     pub fn is_frozen(env: Env) -> bool {
-        env.storage().instance().get(&frozen_key(&env)).unwrap_or(false)
+        env.storage()
+            .instance()
+            .get(&frozen_key(&env))
+            .unwrap_or(false)
     }
 
     pub fn set_frozen(env: Env, admin: Address, frozen: bool) -> Result<(), ReputationError> {
@@ -326,7 +333,33 @@ impl ReputationVerifier {
     }
 
     pub fn last_root_update(env: Env) -> u32 {
-        env.storage().instance().get(&last_root_update_key(&env)).unwrap_or(0u32)
+        env.storage()
+            .instance()
+            .get(&last_root_update_key(&env))
+            .unwrap_or(0u32)
+    }
+
+    pub fn nullifier_batch_limit(_env: Env) -> u32 {
+        MAX_NULLIFIER_BATCH_SIZE
+    }
+
+    /// Return spent/unspent status for a bounded batch of nullifier hashes.
+    ///
+    /// Results preserve input order. The batch is capped at
+    /// `MAX_NULLIFIER_BATCH_SIZE` so wallets can preflight many proofs without
+    /// unbounded simulation cost.
+    pub fn are_nullifiers_spent(
+        env: Env,
+        ids: Vec<BytesN<32>>,
+    ) -> Result<Vec<bool>, ReputationError> {
+        if ids.len() > MAX_NULLIFIER_BATCH_SIZE {
+            return Err(ReputationError::BatchTooLarge);
+        }
+        let mut out = Vec::new(&env);
+        for id in ids.iter() {
+            out.push_back(env.storage().persistent().has(&nullifier_key(&id)));
+        }
+        Ok(out)
     }
 
     pub fn update_merkle_root(
@@ -336,6 +369,13 @@ impl ReputationVerifier {
         dataset_hash: BytesN<32>,
     ) -> Result<(), ReputationError> {
         admin.require_auth();
+        if env
+            .storage()
+            .instance()
+            .get(&frozen_key(&env))
+            .unwrap_or(false)
+        {
+            return Err(ReputationError::ContractFrozen);
         let config: VerifierConfig = env
             .storage()
             .instance()
@@ -481,6 +521,11 @@ impl ReputationVerifier {
         if entry.executed || entry.cancelled {
             return Err(ReputationError::ActionAlreadyFinalized);
         }
+        history.push_back(root.clone());
+        env.storage().instance().set(&history_key(&env), &history);
+        env.storage()
+            .instance()
+            .set(&last_root_update_key(&env), &ledger);
         entry.cancelled = true;
         env.storage()
             .persistent()
@@ -825,6 +870,48 @@ mod test {
             &user, &mock_id, &proof_a, &proof_b, &proof_c, &root, &1u64, &1u64, &nullifier, &0u32,
         );
         assert_eq!(result, Err(Ok(ReputationError::NullifierUsed)));
+    }
+
+    #[test]
+    fn test_are_nullifiers_spent_returns_status_in_order() {
+        let (env, admin, _, client, mock_id) = setup_with_mock();
+        let root = BytesN::from_array(&env, &[0xABu8; 32]);
+        client.update_merkle_root(&admin, &root, &BytesN::from_array(&env, &[0xBCu8; 32]));
+
+        let user = Address::generate(&env);
+        let spent = BytesN::from_array(&env, &[0x10u8; 32]);
+        let unspent = BytesN::from_array(&env, &[0x11u8; 32]);
+        client.verify_reputation(
+            &user,
+            &mock_id,
+            &BytesN::from_array(&env, &[0u8; 64]),
+            &BytesN::from_array(&env, &[0u8; 128]),
+            &BytesN::from_array(&env, &[0u8; 64]),
+            &root,
+            &1u64,
+            &1u64,
+            &spent,
+            &0u32,
+        );
+
+        let mut ids = Vec::new(&env);
+        ids.push_back(unspent);
+        ids.push_back(spent);
+        let statuses = client.are_nullifiers_spent(&ids);
+        assert_eq!(statuses.len(), 2);
+        assert!(!statuses.get(0).unwrap());
+        assert!(statuses.get(1).unwrap());
+    }
+
+    #[test]
+    fn test_are_nullifiers_spent_enforces_batch_limit() {
+        let (env, _, _, client, _) = setup_with_mock();
+        let mut ids = Vec::new(&env);
+        for i in 0..(MAX_NULLIFIER_BATCH_SIZE + 1) {
+            ids.push_back(BytesN::from_array(&env, &[i as u8; 32]));
+        }
+        let result = client.try_are_nullifiers_spent(&ids);
+        assert_eq!(result, Err(Ok(ReputationError::BatchTooLarge)));
     }
 
     #[test]
