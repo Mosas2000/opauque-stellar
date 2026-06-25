@@ -2,26 +2,27 @@
 //!
 //! WebAssembly bindings for the stealth address scanner engine (EIP-5564 / DKSAP).
 
-use wasm_bindgen::prelude::*;
+use alloy_primitives::Address;
 use js_sys;
 use k256::{ecdsa::SigningKey, PublicKey};
-use alloy_primitives::Address;
 use log::{info, warn};
 use std::str::FromStr;
+use wasm_bindgen::prelude::*;
 
 /// The only event schema version this scanner understands.
 /// Announcements carrying a different version are skipped with a console warning.
 const SUPPORTED_EVENT_VERSION: u32 = 1;
 
-mod scanner;
 mod attestation;
 mod merkle;
+mod scanner;
 
 pub use merkle::MerkleError;
 
 use scanner::{
-    derive_stealth_address, derive_stealth_signing_key, check_announcement,
-    check_announcement_view_tag, ViewTagCheck,
+    check_announcement, check_announcement_ed25519, check_announcement_view_tag,
+    check_announcement_view_tag_ed25519, derive_stealth_account_ed25519, derive_stealth_address,
+    derive_stealth_signing_key, ViewTagCheck,
 };
 
 // Initialize panic hook for better error messages in browser console
@@ -70,6 +71,15 @@ fn bytes_to_public_key(bytes: &[u8]) -> Result<PublicKey, JsValue> {
     parse_compressed_pubkey(bytes).map_err(JsValue::from_str)
 }
 
+fn bytes_to_array32(bytes: &[u8], label: &str) -> Result<[u8; 32], JsValue> {
+    if bytes.len() != 32 {
+        return Err(JsValue::from_str(&format!("{label} must be 32 bytes")));
+    }
+    let mut out = [0u8; 32];
+    out.copy_from_slice(bytes);
+    Ok(out)
+}
+
 /// Converts an Address to a hex string
 fn address_to_hex(address: &Address) -> String {
     format!("{:#x}", address)
@@ -77,8 +87,7 @@ fn address_to_hex(address: &Address) -> String {
 
 /// Converts a hex string to an Address
 fn hex_to_address(hex: &str) -> Result<Address, JsValue> {
-    Address::from_str(hex)
-        .map_err(|e| JsValue::from_str(&format!("Invalid address hex: {}", e)))
+    Address::from_str(hex).map_err(|e| JsValue::from_str(&format!("Invalid address hex: {}", e)))
 }
 
 // =============================================================================
@@ -114,11 +123,7 @@ pub fn derive_stealth_address_wasm(
                 &"stealthAddress".into(),
                 &address_to_hex(&address).into(),
             )?;
-            js_sys::Reflect::set(
-                &result,
-                &"viewTag".into(),
-                &JsValue::from(view_tag as u32),
-            )?;
+            js_sys::Reflect::set(&result, &"viewTag".into(), &JsValue::from(view_tag as u32))?;
             Ok(result.into())
         }
         Err(e) => Err(JsValue::from_str(&format!("Stealth address error: {}", e))),
@@ -208,17 +213,85 @@ pub fn reconstruct_signing_key_wasm(
         .map_err(|e| JsValue::from_str(&format!("Reconstruct signing key error: {}", e)))
 }
 
+/// Scheme 2: derives a raw Stellar Ed25519 stealth account id and view tag.
+#[wasm_bindgen]
+pub fn derive_stealth_account_ed25519_wasm(
+    view_seed_bytes: &[u8],
+    spend_pubkey_bytes: &[u8],
+    ephemeral_pubkey_bytes: &[u8],
+) -> Result<JsValue, JsValue> {
+    let view_seed = bytes_to_array32(view_seed_bytes, "Ed25519 view seed")?;
+    let spend_pubkey = bytes_to_array32(spend_pubkey_bytes, "Ed25519 spend pubkey")?;
+    let ephemeral_pubkey = bytes_to_array32(ephemeral_pubkey_bytes, "Ed25519 ephemeral pubkey")?;
+
+    let (account, view_tag) =
+        derive_stealth_account_ed25519(&view_seed, &spend_pubkey, &ephemeral_pubkey)
+            .map_err(|e| JsValue::from_str(&format!("Ed25519 stealth account error: {}", e)))?;
+    let result = js_sys::Object::new();
+    js_sys::Reflect::set(
+        &result,
+        &"stealthAccount".into(),
+        &format!("0x{}", hex::encode(account)).into(),
+    )?;
+    js_sys::Reflect::set(&result, &"viewTag".into(), &JsValue::from(view_tag as u32))?;
+    Ok(result.into())
+}
+
+/// Scheme 2: checks if a raw Stellar Ed25519 announcement matches this recipient.
+#[wasm_bindgen]
+pub fn check_announcement_ed25519_wasm(
+    announcement_stealth_account_hex: &str,
+    view_tag: u8,
+    view_seed_bytes: &[u8],
+    spend_pubkey_bytes: &[u8],
+    ephemeral_pubkey_bytes: &[u8],
+) -> Result<bool, JsValue> {
+    let clean = announcement_stealth_account_hex
+        .strip_prefix("0x")
+        .unwrap_or(announcement_stealth_account_hex);
+    let account_vec = hex::decode(clean)
+        .map_err(|e| JsValue::from_str(&format!("Invalid Ed25519 account hex: {}", e)))?;
+    let account = bytes_to_array32(&account_vec, "Ed25519 stealth account")?;
+    let view_seed = bytes_to_array32(view_seed_bytes, "Ed25519 view seed")?;
+    let spend_pubkey = bytes_to_array32(spend_pubkey_bytes, "Ed25519 spend pubkey")?;
+    let ephemeral_pubkey = bytes_to_array32(ephemeral_pubkey_bytes, "Ed25519 ephemeral pubkey")?;
+
+    check_announcement_ed25519(
+        &account,
+        view_tag,
+        &view_seed,
+        &spend_pubkey,
+        &ephemeral_pubkey,
+    )
+    .map_err(|e| JsValue::from_str(&format!("Check Ed25519 announcement error: {}", e)))
+}
+
+#[wasm_bindgen]
+pub fn check_announcement_view_tag_ed25519_wasm(
+    view_tag: u8,
+    view_seed_bytes: &[u8],
+    ephemeral_pubkey_bytes: &[u8],
+) -> Result<String, JsValue> {
+    let view_seed = bytes_to_array32(view_seed_bytes, "Ed25519 view seed")?;
+    let ephemeral_pubkey = bytes_to_array32(ephemeral_pubkey_bytes, "Ed25519 ephemeral pubkey")?;
+
+    match check_announcement_view_tag_ed25519(view_tag, &view_seed, &ephemeral_pubkey)
+        .map_err(|e| JsValue::from_str(&format!("Check Ed25519 view tag error: {}", e)))?
+    {
+        ViewTagCheck::NoMatch => Ok("NoMatch".to_string()),
+        ViewTagCheck::PossibleMatch => Ok("PossibleMatch".to_string()),
+    }
+}
+
 // =============================================================================
 // Stealth Attestation — WASM Exports
 // =============================================================================
 
 use attestation::{
-    scan_for_attestations,
-    scan_for_attestations_v2,
-    RawAnnouncement, StealthAttestation as AttestationRecord,
-    SchemaInfo, V2StealthAttestation,
+    scan_for_attestations, scan_for_attestations_v2, RawAnnouncement, SchemaInfo,
+    StealthAttestation as AttestationRecord, V2StealthAttestation,
 };
-use merkle::{field_string_to_bytes, MerkleTree, CircuitWitness};
+use merkle::{field_string_to_bytes, CircuitWitness, MerkleTree};
 
 /// Scans announcement metadata for attestation markers.
 ///
@@ -262,7 +335,11 @@ pub fn scan_attestations_wasm(
         let view_tag = ann["viewTag"].as_u64().unwrap_or(0) as u8;
 
         let eph_hex = ann["ephemeralPubKey"].as_str().unwrap_or_default();
-        let eph_clean = if eph_hex.starts_with("0x") { &eph_hex[2..] } else { eph_hex };
+        let eph_clean = if eph_hex.starts_with("0x") {
+            &eph_hex[2..]
+        } else {
+            eph_hex
+        };
         let eph_bytes = hex::decode(eph_clean)
             .map_err(|e| JsValue::from_str(&format!("Invalid ephemeral pubkey hex: {}", e)))?;
 
@@ -282,7 +359,11 @@ pub fn scan_attestations_wasm(
         };
 
         let meta_hex = ann["metadata"].as_str().unwrap_or_default();
-        let meta_clean = if meta_hex.starts_with("0x") { &meta_hex[2..] } else { meta_hex };
+        let meta_clean = if meta_hex.starts_with("0x") {
+            &meta_hex[2..]
+        } else {
+            meta_hex
+        };
         let metadata = hex::decode(meta_clean).unwrap_or_default();
 
         let tx_hash = ann["txHash"].as_str().unwrap_or_default().to_string();
@@ -329,10 +410,12 @@ pub fn generate_reputation_witness(
     let attestations: Vec<AttestationRecord> = serde_json::from_str(attestations_json)
         .map_err(|e| JsValue::from_str(&format!("Invalid attestations JSON: {}", e)))?;
 
-    let target_id: u64 = target_trait_id.parse()
+    let target_id: u64 = target_trait_id
+        .parse()
         .map_err(|e| JsValue::from_str(&format!("Invalid trait ID: {}", e)))?;
 
-    let ext_null: u64 = external_nullifier.parse()
+    let ext_null: u64 = external_nullifier
+        .parse()
         .map_err(|e| JsValue::from_str(&format!("Invalid external nullifier: {}", e)))?;
 
     // Build Merkle tree from all attestations (depth 20 = ~1M capacity)
@@ -342,7 +425,8 @@ pub fn generate_reputation_witness(
 
     for att in &attestations {
         let leaf_data = format!("{}:{}", att.stealth_address, att.attestation_id);
-        let idx = tree.insert_raw(leaf_data.as_bytes())
+        let idx = tree
+            .insert_raw(leaf_data.as_bytes())
             .map_err(|e| JsValue::from_str(&format!("Merkle insert error: {}", e)))?;
         if att.attestation_id == target_id && target_leaf_idx.is_none() {
             target_leaf_idx = Some(idx);
@@ -354,7 +438,8 @@ pub fn generate_reputation_witness(
         .ok_or_else(|| JsValue::from_str("No attestation found matching target trait ID"))?;
     let _target_att = target_attestation.unwrap();
 
-    let proof = tree.proof(leaf_idx)
+    let proof = tree
+        .proof(leaf_idx)
         .map_err(|e| JsValue::from_str(&format!("Merkle proof error: {}", e)))?;
 
     if stealth_privkey_bytes.len() != 32 {
@@ -376,7 +461,11 @@ pub fn generate_reputation_witness(
         stealth_private_key: privkey_decimal,
         ephemeral_pubkey: ["0".to_string(), "0".to_string()],
         announcement_attestation_id: target_id.to_string(),
-        merkle_path_elements: proof.path_elements.iter().map(|e| bytes_to_decimal_string(e)).collect(),
+        merkle_path_elements: proof
+            .path_elements
+            .iter()
+            .map(|e| bytes_to_decimal_string(e))
+            .collect(),
         merkle_path_indices: proof.path_indices,
     };
 
@@ -395,7 +484,13 @@ pub fn generate_reputation_witness(
 #[wasm_bindgen]
 pub fn encode_attestation_metadata_wasm(view_tag: u8, attestation_id: u64) -> String {
     let metadata = attestation::encode_attestation_metadata(view_tag, attestation_id);
-    format!("0x{}", metadata.iter().map(|b| format!("{:02x}", b)).collect::<String>())
+    format!(
+        "0x{}",
+        metadata
+            .iter()
+            .map(|b| format!("{:02x}", b))
+            .collect::<String>()
+    )
 }
 
 // =============================================================================
@@ -438,7 +533,13 @@ pub fn encode_v2_attestation_metadata_wasm(
         &nonce,
         expiration_ledger,
     );
-    Ok(format!("0x{}", metadata.iter().map(|b| format!("{:02x}", b)).collect::<String>()))
+    Ok(format!(
+        "0x{}",
+        metadata
+            .iter()
+            .map(|b| format!("{:02x}", b))
+            .collect::<String>()
+    ))
 }
 
 /// Scans V2 announcements for schema-bound attestations belonging to this recipient.
@@ -491,7 +592,11 @@ pub fn scan_attestations_v2_wasm(
         let stealth_address = hex_to_address(stealth_addr_str)?;
         let view_tag = ann["viewTag"].as_u64().unwrap_or(0) as u8;
         let eph_hex = ann["ephemeralPubKey"].as_str().unwrap_or_default();
-        let eph_clean = if eph_hex.starts_with("0x") { &eph_hex[2..] } else { eph_hex };
+        let eph_clean = if eph_hex.starts_with("0x") {
+            &eph_hex[2..]
+        } else {
+            eph_hex
+        };
         let eph_bytes = hex::decode(eph_clean)
             .map_err(|e| JsValue::from_str(&format!("Invalid ephemeral pubkey: {}", e)))?;
 
@@ -510,7 +615,11 @@ pub fn scan_attestations_v2_wasm(
         };
 
         let meta_hex = ann["metadata"].as_str().unwrap_or_default();
-        let meta_clean = if meta_hex.starts_with("0x") { &meta_hex[2..] } else { meta_hex };
+        let meta_clean = if meta_hex.starts_with("0x") {
+            &meta_hex[2..]
+        } else {
+            meta_hex
+        };
         let metadata = hex::decode(meta_clean).unwrap_or_default();
         let tx_hash = ann["txHash"].as_str().unwrap_or_default().to_string();
         let block_number = ann["blockNumber"].as_u64().unwrap_or(0);
@@ -596,10 +705,10 @@ pub fn generate_reputation_witness_v2(
         .collect();
     let stealth_pk_field = format!("0x{}", privkey_hex);
 
-    let stealth_pk_bytes = field_string_to_bytes(&stealth_pk_field)
-        .map_err(|e| JsValue::from_str(&e))?;
-    let trait_data_hash_bytes = field_string_to_bytes(trait_data_hash_hex)
-        .map_err(|e| JsValue::from_str(&e))?;
+    let stealth_pk_bytes =
+        field_string_to_bytes(&stealth_pk_field).map_err(|e| JsValue::from_str(&e))?;
+    let trait_data_hash_bytes =
+        field_string_to_bytes(trait_data_hash_hex).map_err(|e| JsValue::from_str(&e))?;
 
     // Build Merkle tree from the same V2 leaf preimage used by the circuit.
     let mut tree = MerkleTree::new(20);
@@ -618,13 +727,15 @@ pub fn generate_reputation_witness_v2(
             field_string_to_bytes(&att.merkle_leaf_preimage.trait_data_hash)
                 .map_err(|e| JsValue::from_str(&e))?
         };
-        let idx = tree.insert_v2_leaf(
-            stealth_pk_bytes,
-            schema_id,
-            issuer_pk_x,
-            leaf_trait_data_hash,
-            nonce,
-        ).map_err(|e| JsValue::from_str(&format!("Merkle insert error: {}", e)))?;
+        let idx = tree
+            .insert_v2_leaf(
+                stealth_pk_bytes,
+                schema_id,
+                issuer_pk_x,
+                leaf_trait_data_hash,
+                nonce,
+            )
+            .map_err(|e| JsValue::from_str(&format!("Merkle insert error: {}", e)))?;
         if att.attestation_uid == target_att.attestation_uid && target_leaf_idx.is_none() {
             target_leaf_idx = Some(idx);
         }
@@ -633,7 +744,8 @@ pub fn generate_reputation_witness_v2(
     let leaf_idx = target_leaf_idx
         .ok_or_else(|| JsValue::from_str("Failed to locate target attestation in Merkle tree"))?;
 
-    let proof = tree.proof(leaf_idx)
+    let proof = tree
+        .proof(leaf_idx)
         .map_err(|e| JsValue::from_str(&format!("Merkle proof error: {}", e)))?;
 
     // Build the V2 circuit witness JSON (matches circuit signal names exactly)
@@ -664,8 +776,8 @@ pub fn generate_reputation_witness_v2(
 
 fn parse_hex32(hex: &str) -> Result<[u8; 32], JsValue> {
     let clean = hex.trim_start_matches("0x");
-    let bytes = hex::decode(clean)
-        .map_err(|e| JsValue::from_str(&format!("Invalid hex: {}", e)))?;
+    let bytes =
+        hex::decode(clean).map_err(|e| JsValue::from_str(&format!("Invalid hex: {}", e)))?;
     if bytes.len() != 32 {
         return Err(JsValue::from_str("Expected exactly 32 bytes"));
     }
@@ -694,7 +806,13 @@ fn bytes_to_decimal_string(bytes: &[u8; 32]) -> String {
     }
     // For field elements, use the hex representation as-is for the circuit
     // (circom accepts both hex and decimal)
-    format!("0x{}", bytes.iter().map(|b| format!("{:02x}", b)).collect::<String>())
+    format!(
+        "0x{}",
+        bytes
+            .iter()
+            .map(|b| format!("{:02x}", b))
+            .collect::<String>()
+    )
 }
 
 // =============================================================================
@@ -707,7 +825,7 @@ fn bytes_to_decimal_string(bytes: &[u8; 32]) -> String {
 #[cfg(test)]
 mod wasm_boundary_tests {
     use super::*;
-    use crate::scanner::{derive_stealth_address, check_announcement, check_announcement_view_tag};
+    use crate::scanner::{check_announcement, check_announcement_view_tag, derive_stealth_address};
     use k256::{ecdsa::SigningKey, PublicKey};
 
     // Valid test key material
@@ -716,11 +834,19 @@ mod wasm_boundary_tests {
     }
 
     fn valid_spend_pubkey() -> PublicKey {
-        PublicKey::from(SigningKey::from_bytes(&[0xbb; 32].into()).unwrap().verifying_key())
+        PublicKey::from(
+            SigningKey::from_bytes(&[0xbb; 32].into())
+                .unwrap()
+                .verifying_key(),
+        )
     }
 
     fn valid_ephemeral_pubkey() -> PublicKey {
-        PublicKey::from(SigningKey::from_bytes(&[0xcc; 32].into()).unwrap().verifying_key())
+        PublicKey::from(
+            SigningKey::from_bytes(&[0xcc; 32].into())
+                .unwrap()
+                .verifying_key(),
+        )
     }
 
     // =============================================================
@@ -729,17 +855,26 @@ mod wasm_boundary_tests {
 
     #[test]
     fn rejects_empty_pubkey_bytes() {
-        assert_eq!(parse_compressed_pubkey(&[]), Err("PublicKey must be 33 bytes (compressed)"));
+        assert_eq!(
+            parse_compressed_pubkey(&[]),
+            Err("PublicKey must be 33 bytes (compressed)")
+        );
     }
 
     #[test]
     fn rejects_32_byte_pubkey() {
-        assert_eq!(parse_compressed_pubkey(&[0x02; 32]), Err("PublicKey must be 33 bytes (compressed)"));
+        assert_eq!(
+            parse_compressed_pubkey(&[0x02; 32]),
+            Err("PublicKey must be 33 bytes (compressed)")
+        );
     }
 
     #[test]
     fn rejects_34_byte_pubkey() {
-        assert_eq!(parse_compressed_pubkey(&[0x02; 34]), Err("PublicKey must be 33 bytes (compressed)"));
+        assert_eq!(
+            parse_compressed_pubkey(&[0x02; 34]),
+            Err("PublicKey must be 33 bytes (compressed)")
+        );
     }
 
     #[test]
@@ -872,12 +1007,15 @@ mod wasm_boundary_tests {
 
     #[test]
     fn rejects_long_hex32() {
-        assert!(parse_hex32(&"0x".to_string() + &"ab".repeat(33)).is_err());
+        assert!(parse_hex32(&("0x".to_string() + &"ab".repeat(33))).is_err());
     }
 
     #[test]
     fn rejects_malformed_hex32_chars() {
-        assert!(parse_hex32("0xgggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggg").is_err());
+        assert!(
+            parse_hex32("0xgggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggg")
+                .is_err()
+        );
     }
 
     #[test]
@@ -887,7 +1025,7 @@ mod wasm_boundary_tests {
 
     #[test]
     fn accepts_valid_hex32() {
-        assert!(parse_hex32(&"0x".to_string() + &"ab".repeat(32)).is_ok());
+        assert!(parse_hex32(&("0x".to_string() + &"ab".repeat(32))).is_ok());
     }
 
     #[test]
@@ -935,7 +1073,10 @@ mod wasm_boundary_tests {
 
     #[test]
     fn merkle_error_display_does_not_panic() {
-        let err = MerkleError::TreeFull { capacity: 2, count: 2 };
+        let err = MerkleError::TreeFull {
+            capacity: 2,
+            count: 2,
+        };
         let _ = format!("{}", err);
         let err = MerkleError::IndexOutOfBounds { index: 5, count: 3 };
         let _ = format!("{}", err);
@@ -952,7 +1093,7 @@ mod wasm_boundary_tests {
 #[cfg(test)]
 mod cross_language_vector_tests {
     use super::*;
-    use crate::merkle::{MerkleTree, poseidon_hash_fields, field_string_to_bytes};
+    use crate::merkle::{field_string_to_bytes, poseidon_hash_fields, MerkleTree};
 
     /// Verifies Poseidon(1, 2) matches the circomlib vector from
     /// docs/crypto-test-vectors.json and scanner/src/merkle.rs.
@@ -963,8 +1104,9 @@ mod cross_language_vector_tests {
         let hash = poseidon_hash_fields(&[left, right]);
 
         let expected = field_string_to_bytes(
-            "7853200120776062878684798364095072458815029376092732009249414926327459813530"
-        ).unwrap();
+            "7853200120776062878684798364095072458815029376092732009249414926327459813530",
+        )
+        .unwrap();
         assert_eq!(hash, expected, "Poseidon(1,2) must match circomlib");
     }
 
@@ -975,8 +1117,9 @@ mod cross_language_vector_tests {
         let hash = poseidon_hash_fields(&[zero, zero]);
 
         let expected = field_string_to_bytes(
-            "14744269619966411208579211824598458697587494354926760081771325075741142829156"
-        ).unwrap();
+            "14744269619966411208579211824598458697587494354926760081771325075741142829156",
+        )
+        .unwrap();
         assert_eq!(hash, expected, "Poseidon(0,0) must match circomlib");
     }
 
@@ -985,8 +1128,8 @@ mod cross_language_vector_tests {
     /// must produce the same stealth address for the same inputs.
     #[test]
     fn dksap_derivation_is_deterministic() {
-        use k256::{ecdsa::SigningKey, PublicKey};
         use crate::scanner::derive_stealth_address;
+        use k256::{ecdsa::SigningKey, PublicKey};
 
         let view_privkey = SigningKey::from_bytes(&[0xaa; 32].into()).unwrap();
         let spend_privkey = SigningKey::from_bytes(&[0xbb; 32].into()).unwrap();
@@ -995,16 +1138,17 @@ mod cross_language_vector_tests {
         let ephemeral_pubkey = PublicKey::from(ephemeral_privkey.verifying_key());
 
         // First derivation
-        let (addr1, tag1) = derive_stealth_address(
-            &view_privkey, &spend_pubkey, &ephemeral_pubkey
-        ).unwrap();
+        let (addr1, tag1) =
+            derive_stealth_address(&view_privkey, &spend_pubkey, &ephemeral_pubkey).unwrap();
 
         // Second derivation — must be identical
-        let (addr2, tag2) = derive_stealth_address(
-            &view_privkey, &spend_pubkey, &ephemeral_pubkey
-        ).unwrap();
+        let (addr2, tag2) =
+            derive_stealth_address(&view_privkey, &spend_pubkey, &ephemeral_pubkey).unwrap();
 
-        assert_eq!(addr1, addr2, "Stealth address derivation must be deterministic");
+        assert_eq!(
+            addr1, addr2,
+            "Stealth address derivation must be deterministic"
+        );
         assert_eq!(tag1, tag2, "View tag derivation must be deterministic");
     }
 
@@ -1039,7 +1183,12 @@ mod cross_language_vector_tests {
         let nonce = [0xdd; 32];
 
         let encoded = encode_v2_attestation_metadata(
-            0x42, &schema_id, &issuer, &attestation_uid, &nonce, 100000,
+            0x42,
+            &schema_id,
+            &issuer,
+            &attestation_uid,
+            &nonce,
+            100000,
         );
 
         let hex: String = encoded.iter().map(|b| format!("{:02x}", b)).collect();
@@ -1060,38 +1209,57 @@ mod cross_language_vector_tests {
 
         let stealth_pk = field_string_to_bytes("0").unwrap();
         let schema_id = field_string_to_bytes(
-            "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
-        ).unwrap();
+            "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        )
+        .unwrap();
         let issuer_pk_x = field_string_to_bytes(
-            "0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
-        ).unwrap();
+            "0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        )
+        .unwrap();
         let trait_data_hash = field_string_to_bytes(
-            "0xcccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
-        ).unwrap();
+            "0xcccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+        )
+        .unwrap();
         let nonce = field_string_to_bytes(
-            "0xdddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
-        ).unwrap();
+            "0xdddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+        )
+        .unwrap();
 
-        let leaf_from_fields = poseidon_hash_fields(&[
-            stealth_pk, schema_id, issuer_pk_x, trait_data_hash, nonce,
-        ]);
+        let leaf_from_fields =
+            poseidon_hash_fields(&[stealth_pk, schema_id, issuer_pk_x, trait_data_hash, nonce]);
 
         let mut tree = MerkleTree::new(2);
         tree.insert_v2_leaf(
             field_string_to_bytes("0").unwrap(),
-            field_string_to_bytes("0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa").unwrap(),
-            field_string_to_bytes("0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb").unwrap(),
-            field_string_to_bytes("0xcccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc").unwrap(),
-            field_string_to_bytes("0xdddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd").unwrap(),
-        ).unwrap();
+            field_string_to_bytes(
+                "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            )
+            .unwrap(),
+            field_string_to_bytes(
+                "0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            )
+            .unwrap(),
+            field_string_to_bytes(
+                "0xcccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+            )
+            .unwrap(),
+            field_string_to_bytes(
+                "0xdddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+            )
+            .unwrap(),
+        )
+        .unwrap();
 
         assert_eq!(tree.leaf_count(), 1);
         // Verifying that the tree root changes after insertion confirms
         // the leaf was correctly added. Direct leaf access is not exposed
         // outside the scanner crate, so we verify via root change.
         let root_with_leaf = tree.root();
-        assert_ne!(root_with_leaf, MerkleTree::new(2).root(),
-            "V2 leaf insertion must change the Merkle root");
+        assert_ne!(
+            root_with_leaf,
+            MerkleTree::new(2).root(),
+            "V2 leaf insertion must change the Merkle root"
+        );
     }
 }
 

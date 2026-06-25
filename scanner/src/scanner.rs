@@ -4,10 +4,14 @@
 //! and filters them efficiently using view tags before expensive EC operations.
 
 use alloy_primitives::Address;
+use curve25519_dalek::{
+    constants::ED25519_BASEPOINT_POINT, edwards::CompressedEdwardsY, Scalar as Ed25519Scalar,
+};
 use k256::elliptic_curve::sec1::ToEncodedPoint;
 use k256::elliptic_curve::PrimeField;
-use k256::{ecdsa::SigningKey, PublicKey, ProjectivePoint, Scalar};
-use sha3::{Digest, Keccak256};
+use k256::{ecdsa::SigningKey, ProjectivePoint, PublicKey, Scalar};
+use sha2::{Digest as Sha2Digest, Sha256, Sha512};
+use sha3::Keccak256;
 
 // =============================================================================
 // Data structures (EIP-5564 stealth meta-address)
@@ -99,8 +103,8 @@ pub fn derive_stealth_address(
     let spend_affine = spend_pubkey.to_projective();
     let p_stealth_proj = spend_affine + s_h_point;
     let p_stealth_affine = p_stealth_proj.to_affine();
-    let p_stealth = PublicKey::from_affine(p_stealth_affine)
-        .map_err(|_| StealthAddressError::InvalidPoint)?;
+    let p_stealth =
+        PublicKey::from_affine(p_stealth_affine).map_err(|_| StealthAddressError::InvalidPoint)?;
     // Step 6: Ethereum address from uncompressed pubkey (Keccak256, then last 20 bytes)
     let address = pubkey_to_address(&p_stealth);
     Ok((address, view_tag))
@@ -135,6 +139,101 @@ pub fn derive_stealth_signing_key(
     let mut out = [0u8; 32];
     out.copy_from_slice(p_stealth_scalar.to_repr().as_ref());
     Ok(out)
+}
+
+// =============================================================================
+// Stellar-native Ed25519 stealth account derivation (scheme_id = 2)
+// =============================================================================
+
+fn ed25519_scalar_from_seed(seed: &[u8; 32]) -> Ed25519Scalar {
+    let digest = Sha512::digest(seed);
+    let mut scalar = [0u8; 32];
+    scalar.copy_from_slice(&digest[..32]);
+    scalar[0] &= 248;
+    scalar[31] &= 63;
+    scalar[31] |= 64;
+    Ed25519Scalar::from_bytes_mod_order(scalar)
+}
+
+#[cfg(test)]
+fn ed25519_pubkey_from_seed(seed: &[u8; 32]) -> [u8; 32] {
+    (ED25519_BASEPOINT_POINT * ed25519_scalar_from_seed(seed))
+        .compress()
+        .to_bytes()
+}
+
+fn ed25519_shared_secret(
+    view_seed: &[u8; 32],
+    ephemeral_pubkey: &[u8; 32],
+) -> Result<[u8; 32], StealthAddressError> {
+    let point = CompressedEdwardsY(*ephemeral_pubkey)
+        .decompress()
+        .ok_or(StealthAddressError::InvalidPoint)?;
+    Ok((point * ed25519_scalar_from_seed(view_seed))
+        .compress()
+        .to_bytes())
+}
+
+fn ed25519_hash_shared_secret(shared_secret: &[u8; 32]) -> [u8; 32] {
+    let mut hasher = Sha256::new();
+    hasher.update(b"opaque-stellar-ed25519-v1");
+    hasher.update(shared_secret);
+    hasher.finalize().into()
+}
+
+/// Derives the raw 32-byte Stellar Ed25519 stealth account id and view tag.
+///
+/// Scheme 2 mirrors DKSAP over Ed25519 public keys:
+/// 1. Shared secret: `s = p_view * P_ephemeral`.
+/// 2. Hash: `s_h = SHA256(domain || s)`.
+/// 3. View tag: `v = s_h[0]`.
+/// 4. Stealth public key: `P_stealth = P_spend + s_h*B`.
+///
+/// The returned account id is the raw 32-byte Ed25519 public key used inside a
+/// Stellar `G...` strkey.
+pub fn derive_stealth_account_ed25519(
+    view_seed: &[u8; 32],
+    spend_pubkey: &[u8; 32],
+    ephemeral_pubkey: &[u8; 32],
+) -> Result<([u8; 32], u8), StealthAddressError> {
+    let shared = ed25519_shared_secret(view_seed, ephemeral_pubkey)?;
+    let s_h = ed25519_hash_shared_secret(&shared);
+    let view_tag = s_h[0];
+    let spend_point = CompressedEdwardsY(*spend_pubkey)
+        .decompress()
+        .ok_or(StealthAddressError::InvalidPoint)?;
+    let tweak = Ed25519Scalar::from_bytes_mod_order(s_h);
+    let stealth = spend_point + (ED25519_BASEPOINT_POINT * tweak);
+    Ok((stealth.compress().to_bytes(), view_tag))
+}
+
+pub fn check_announcement_view_tag_ed25519(
+    view_tag: u8,
+    view_seed: &[u8; 32],
+    ephemeral_pubkey: &[u8; 32],
+) -> Result<ViewTagCheck, StealthAddressError> {
+    let shared = ed25519_shared_secret(view_seed, ephemeral_pubkey)?;
+    let s_h = ed25519_hash_shared_secret(&shared);
+    if view_tag != s_h[0] {
+        Ok(ViewTagCheck::NoMatch)
+    } else {
+        Ok(ViewTagCheck::PossibleMatch)
+    }
+}
+
+pub fn check_announcement_ed25519(
+    announcement_stealth_account: &[u8; 32],
+    view_tag: u8,
+    view_seed: &[u8; 32],
+    spend_pubkey: &[u8; 32],
+    ephemeral_pubkey: &[u8; 32],
+) -> Result<bool, StealthAddressError> {
+    match check_announcement_view_tag_ed25519(view_tag, view_seed, ephemeral_pubkey)? {
+        ViewTagCheck::NoMatch => return Ok(false),
+        ViewTagCheck::PossibleMatch => {}
+    }
+    let (derived, _) = derive_stealth_account_ed25519(view_seed, spend_pubkey, ephemeral_pubkey)?;
+    Ok(&derived == announcement_stealth_account)
 }
 
 // =============================================================================
@@ -187,7 +286,8 @@ pub fn check_announcement(
         ViewTagCheck::NoMatch => return Ok(false),
         ViewTagCheck::PossibleMatch => {}
     }
-    let (derived_address, _) = derive_stealth_address(view_privkey, spend_pubkey, ephemeral_pubkey)?;
+    let (derived_address, _) =
+        derive_stealth_address(view_privkey, spend_pubkey, ephemeral_pubkey)?;
     Ok(derived_address == announcement_stealth_address)
 }
 
@@ -204,7 +304,9 @@ pub enum StealthAddressError {
 impl std::fmt::Display for StealthAddressError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            StealthAddressError::InvalidScalar => write!(f, "hashed shared secret out of curve order"),
+            StealthAddressError::InvalidScalar => {
+                write!(f, "hashed shared secret out of curve order")
+            }
             StealthAddressError::InvalidPoint => write!(f, "invalid stealth public key point"),
         }
     }
@@ -251,7 +353,9 @@ mod tests {
         };
         let sender_s_h = hash_shared_secret(&sender_shared);
         let sender_view_tag = view_tag_from_hashed_secret(&sender_s_h);
-        let sender_s_h_scalar = Scalar::from_repr(k256::FieldBytes::from(sender_s_h)).into_option().unwrap();
+        let sender_s_h_scalar = Scalar::from_repr(k256::FieldBytes::from(sender_s_h))
+            .into_option()
+            .unwrap();
         let sender_s_h_point = ProjectivePoint::GENERATOR * sender_s_h_scalar;
         let stealth_point = spend_pubkey.to_projective() + sender_s_h_point;
         let stealth_pk = PublicKey::from_affine(stealth_point.to_affine()).unwrap();
@@ -320,5 +424,53 @@ mod tests {
 
         assert_eq!(addr, addr2);
         assert_eq!(tag, tag2);
+    }
+
+    #[test]
+    fn ed25519_round_trip_derive_and_check() {
+        let view_seed = [0x11u8; 32];
+        let spend_seed = [0x22u8; 32];
+        let ephemeral_seed = [0x33u8; 32];
+        let spend_pubkey = ed25519_pubkey_from_seed(&spend_seed);
+        let ephemeral_pubkey = ed25519_pubkey_from_seed(&ephemeral_seed);
+
+        let (stealth_account, view_tag) =
+            derive_stealth_account_ed25519(&view_seed, &spend_pubkey, &ephemeral_pubkey).unwrap();
+
+        let result = check_announcement_ed25519(
+            &stealth_account,
+            view_tag,
+            &view_seed,
+            &spend_pubkey,
+            &ephemeral_pubkey,
+        )
+        .unwrap();
+
+        assert!(
+            result,
+            "scheme 2 scanner must recognise its stealth account"
+        );
+    }
+
+    #[test]
+    fn ed25519_wrong_view_tag_rejects() {
+        let view_seed = [0x44u8; 32];
+        let spend_seed = [0x55u8; 32];
+        let ephemeral_seed = [0x66u8; 32];
+        let spend_pubkey = ed25519_pubkey_from_seed(&spend_seed);
+        let ephemeral_pubkey = ed25519_pubkey_from_seed(&ephemeral_seed);
+        let (stealth_account, view_tag) =
+            derive_stealth_account_ed25519(&view_seed, &spend_pubkey, &ephemeral_pubkey).unwrap();
+
+        let result = check_announcement_ed25519(
+            &stealth_account,
+            view_tag.wrapping_add(1),
+            &view_seed,
+            &spend_pubkey,
+            &ephemeral_pubkey,
+        )
+        .unwrap();
+
+        assert!(!result);
     }
 }

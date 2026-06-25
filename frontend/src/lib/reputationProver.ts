@@ -9,7 +9,15 @@
 import type { OpaqueWasmModule } from "../hooks/useOpaqueWasm";
 import type { ProofData, DiscoveredTrait } from "./reputation";
 import { reputationAddresses } from "../contracts/reputationAddresses";
-import { BASE_FEE, Contract, TransactionBuilder, nativeToScVal } from "@stellar/stellar-sdk";
+import {
+  Account,
+  BASE_FEE,
+  Contract,
+  TransactionBuilder,
+  nativeToScVal,
+  scValToNative,
+  xdr,
+} from "@stellar/stellar-sdk";
 import { bytesToScVal, getSorobanServer, invokeContractMethod, u64ToScVal } from "./stellar";
 import type { SignTxFn } from "./stellar";
 import { getNetworkPassphrase } from "./chain";
@@ -23,6 +31,7 @@ export type { ProofProgressCallback };
 export { ProofGenerationCancelledError };
 
 const REPUTATION_CONTRACT_ID = reputationAddresses.reputationVerifier;
+export const MAX_NULLIFIER_BATCH_SIZE = 128;
 
 /**
  * Full proof generation pipeline (runs in a Web Worker):
@@ -125,6 +134,43 @@ export async function fetchLatestValidMerkleRoot(sourcePublicKey: string): Promi
   return rootBytes;
 }
 
+export async function areNullifiersSpent(
+  sourcePublicKey: string,
+  ids: Uint8Array[],
+): Promise<boolean[]> {
+  const results: boolean[] = [];
+  const server = getSorobanServer();
+  const passphrase = getNetworkPassphrase();
+  const contract = new Contract(REPUTATION_CONTRACT_ID);
+
+  for (let offset = 0; offset < ids.length; offset += MAX_NULLIFIER_BATCH_SIZE) {
+    const batch = ids.slice(offset, offset + MAX_NULLIFIER_BATCH_SIZE);
+    const fakeAccount = new Account(sourcePublicKey, "0");
+    const idsScVal = xdr.ScVal.scvVec(
+      batch.map((id) => nativeToScVal(Buffer.from(id), { type: "bytes" })),
+    );
+    const tx = new TransactionBuilder(fakeAccount, {
+      fee: BASE_FEE,
+      networkPassphrase: passphrase,
+    })
+      .addOperation(contract.call("are_nullifiers_spent", idsScVal))
+      .setTimeout(30)
+      .build();
+
+    const sim = await server.simulateTransaction(tx);
+    if (!("result" in sim) || !sim.result) {
+      throw new Error("Unable to preflight nullifier status.");
+    }
+    const native = scValToNative(sim.result.retval);
+    if (!Array.isArray(native)) {
+      throw new Error("Unexpected nullifier batch response.");
+    }
+    results.push(...native.map(Boolean));
+  }
+
+  return results;
+}
+
 /**
  * Submits a proof to the ReputationVerifier Soroban contract.
  */
@@ -137,6 +183,10 @@ export async function submitProofOnChain(
 ): Promise<string> {
   const rootBytes = bigIntToBytes32(BigInt(merkleRoot));
   const nullifierBytes = bigIntToBytes32(BigInt(proofData.nullifier));
+  const [isSpent] = await areNullifiersSpent(publicKey, [nullifierBytes]);
+  if (isSpent) {
+    throw new Error("This proof nullifier has already been used on-chain.");
+  }
 
   const pi_a = proofData.proof.pi_a.map(BigInt);
   const pi_b_flat = proofData.proof.pi_b.flatMap((pair) => [BigInt(pair[1]), BigInt(pair[0])]);

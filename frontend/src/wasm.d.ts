@@ -34,6 +34,25 @@ declare module '@wasm/cryptography.js' {
     ephemeral_pubkey_bytes: Uint8Array
   ): Uint8Array;
 
+  // Scheme 2: Stellar-native Ed25519 derivation
+  export function derive_stealth_account_ed25519_wasm(
+    view_seed_bytes: Uint8Array,
+    spend_pubkey_bytes: Uint8Array,
+    ephemeral_pubkey_bytes: Uint8Array
+  ): { stealthAccount: string; viewTag: number };
+  export function check_announcement_ed25519_wasm(
+    announcement_stealth_account_hex: string,
+    view_tag: number,
+    view_seed_bytes: Uint8Array,
+    spend_pubkey_bytes: Uint8Array,
+    ephemeral_pubkey_bytes: Uint8Array
+  ): boolean;
+  export function check_announcement_view_tag_ed25519_wasm(
+    view_tag: number,
+    view_seed_bytes: Uint8Array,
+    ephemeral_pubkey_bytes: Uint8Array
+  ): "NoMatch" | "PossibleMatch";
+
   // Attestation scanning
   export function scan_attestations_wasm(
     announcements_json: string,

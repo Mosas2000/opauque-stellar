@@ -91,6 +91,38 @@ interface AdminStatus {
   isPendingAdmin: boolean;
 }
 
+interface AttestationMetrics {
+  count: number | null;
+  active: number | null;
+  revoked: number | null;
+  maxDataBytes: number | null;
+}
+
+function toFiniteNumber(value: unknown): number | null {
+  if (typeof value === "number" && Number.isFinite(value)) return value;
+  if (typeof value === "bigint") return Number(value);
+  if (typeof value === "string" && value.trim()) {
+    const n = Number(value);
+    return Number.isFinite(n) ? n : null;
+  }
+  return null;
+}
+
+function parseAttestationMetrics(countRaw: unknown, statsRaw: unknown): AttestationMetrics {
+  const stats =
+    statsRaw && typeof statsRaw === "object"
+      ? (statsRaw as Record<string, unknown>)
+      : {};
+  return {
+    count: toFiniteNumber(countRaw),
+    active: toFiniteNumber(stats.active_count),
+    revoked: toFiniteNumber(stats.revoked_count),
+    maxDataBytes: toFiniteNumber(stats.max_attestation_data_len),
+  };
+}
+
+type MetricRow = readonly [string, number | null];
+
 // =============================================================================
 // Per-contract admin card
 // =============================================================================
@@ -387,6 +419,7 @@ function MultisigGuide() {
 export function AdminPanel() {
   const { publicKey, signTransaction } = useWallet();
   const [statuses, setStatuses] = useState<AdminStatus[]>([]);
+  const [attestationMetrics, setAttestationMetrics] = useState<AttestationMetrics | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -433,6 +466,24 @@ export function AdminPanel() {
           };
         }),
       );
+
+      const [countRaw, statsRaw] = await Promise.all([
+        simulateRead(
+          server,
+          passphrase,
+          publicKey,
+          deployedAddresses.attestationEngineV2,
+          "get_attestation_count",
+        ),
+        simulateRead(
+          server,
+          passphrase,
+          publicKey,
+          deployedAddresses.attestationEngineV2,
+          "get_storage_stats",
+        ),
+      ]);
+      setAttestationMetrics(parseAttestationMetrics(countRaw, statsRaw));
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to load admin status");
     } finally {
@@ -480,6 +531,35 @@ export function AdminPanel() {
         <p className="rounded-lg border border-neutral-500/30 bg-neutral-500/10 px-3 py-2 text-xs text-neutral-400">
           {error}
         </p>
+      )}
+
+      {attestationMetrics && (
+        <div className="rounded-xl border border-ink-700 bg-ink-900/40 px-4 py-3">
+          <div className="flex items-center justify-between gap-3 mb-3">
+            <div>
+              <h4 className="text-sm font-semibold text-white">Attestation Metrics</h4>
+              <p className="text-xs text-mist mt-0.5">Read-only counters from Attestation Engine V2.</p>
+            </div>
+            <span className="text-[11px] font-mono text-mist/70">
+              {shortAddr(deployedAddresses.attestationEngineV2)}
+            </span>
+          </div>
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+            {([
+              ["Issued", attestationMetrics.count],
+              ["Active", attestationMetrics.active],
+              ["Revoked", attestationMetrics.revoked],
+              ["Max Data Bytes", attestationMetrics.maxDataBytes],
+            ] satisfies MetricRow[]).map(([label, value]) => (
+              <div key={label} className="rounded-lg border border-ink-700 bg-ink-950/40 px-3 py-2">
+                <p className="text-[10px] uppercase tracking-widest text-mist/60">{label}</p>
+                <p className="mt-1 text-sm font-semibold text-white">
+                  {typeof value === "number" ? value.toLocaleString() : "N/A"}
+                </p>
+              </div>
+            ))}
+          </div>
+        </div>
       )}
 
       {isLoading && statuses.length === 0 ? (

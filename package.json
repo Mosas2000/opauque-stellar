@@ -15,6 +15,7 @@
     "build:scanner": "tsx scripts/build-scanner-wasm.ts",
     "fetch:circuits": "tsx scripts/fetch-circuit-artifacts.ts",
     "verify:artifacts": "tsx scripts/verify-artifact-manifest.ts",
+    "example:simulate-attest": "tsx examples/simulate-attest.ts --dry-run",
     "update:artifacts": "tsx scripts/update-artifact-manifest.ts --sync-deployments --embedded-vk",
     "prepare:frontend": "tsx scripts/prepare-frontend-artifacts.ts",
     "test:circuits": "npm run test:regression --prefix circuits",

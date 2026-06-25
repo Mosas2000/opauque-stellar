@@ -15,9 +15,8 @@ use serde::{Deserialize, Serialize};
 use crate::scanner::{
     check_announcement_view_tag, derive_stealth_address, StealthAddressError, ViewTagCheck,
 };
-use log::{warn, info};
+use log::{info, warn};
 use sha2::{Digest, Sha256};
-
 
 // =============================================================================
 // Attestation types
@@ -117,10 +116,7 @@ pub fn scan_for_attestations(
         }
 
         if let Some(attestation_id) = extract_attestation_id(&ann.metadata) {
-            let compressed = ann
-                .ephemeral_pubkey
-                .to_sec1_bytes()
-                .to_vec();
+            let compressed = ann.ephemeral_pubkey.to_sec1_bytes().to_vec();
 
             results.push(StealthAttestation {
                 stealth_address: format!("{:#x}", ann.stealth_address),
@@ -317,8 +313,7 @@ impl SchemaInfo {
     }
 
     pub fn is_active(&self, current_slot: u64) -> bool {
-        !self.deprecated
-            && (self.schema_expiry_slot == 0 || current_slot < self.schema_expiry_slot)
+        !self.deprecated && (self.schema_expiry_slot == 0 || current_slot < self.schema_expiry_slot)
     }
 }
 
@@ -368,7 +363,10 @@ pub fn scan_for_attestations_v2(
             Some(s) => s,
             None => {
                 // Unknown schema_id — rogue trait, log hash and skip
-                warn!("Rogue trait: unknown schema_id hash {}", short_hash(&v2.schema_id));
+                warn!(
+                    "Rogue trait: unknown schema_id hash {}",
+                    short_hash(&v2.schema_id)
+                );
                 continue;
             }
         };
@@ -382,7 +380,10 @@ pub fn scan_for_attestations_v2(
         let issuer_authorized = schema.is_authorized_issuer(&v2.issuer);
         if !issuer_authorized {
             // Unauthorized issuer – log hash and skip
-            warn!("Rogue trait: unauthorized issuer hash {}", short_hash(&v2.issuer));
+            warn!(
+                "Rogue trait: unauthorized issuer hash {}",
+                short_hash(&v2.issuer)
+            );
             continue;
         }
 
@@ -394,35 +395,35 @@ pub fn scan_for_attestations_v2(
             }
         }
 
-    // Step 8: Check attestation-level expiration against current slot
-    let expiration_slot = v2.expiration_ledger as u64;
-    let is_valid = expiration_slot == 0 || current_slot < expiration_slot;
+        // Step 8: Check attestation-level expiration against current slot
+        let expiration_slot = v2.expiration_ledger as u64;
+        let is_valid = expiration_slot == 0 || current_slot < expiration_slot;
 
-    // Step 9: Build the leaf preimage struct for the circuit witness.
-    let stealth_addr_hex = format!("{:#x}", ann.stealth_address);
-    let merkle_leaf_preimage = MerkleLeafPreimage {
-        stealth_pk_field: "0".to_string(), // caller fills from stealth privkey
-        schema_id_field: bytes_to_field_decimal(&v2.schema_id),
-        issuer_pk_x: bytes_to_field_decimal(&v2.issuer),
-        trait_data_hash: "0".to_string(), // caller fills after decoding data
-        nonce_field: bytes_to_field_decimal(&v2.nonce),
-    };
+        // Step 9: Build the leaf preimage struct for the circuit witness.
+        let stealth_addr_hex = format!("{:#x}", ann.stealth_address);
+        let merkle_leaf_preimage = MerkleLeafPreimage {
+            stealth_pk_field: "0".to_string(), // caller fills from stealth privkey
+            schema_id_field: bytes_to_field_decimal(&v2.schema_id),
+            issuer_pk_x: bytes_to_field_decimal(&v2.issuer),
+            trait_data_hash: "0".to_string(), // caller fills after decoding data
+            nonce_field: bytes_to_field_decimal(&v2.nonce),
+        };
 
-    results.push(V2StealthAttestation {
-        stealth_address: stealth_addr_hex,
-        schema_id: hex_encode(&v2.schema_id),
-        schema_name: Some(schema.name.clone()),
-        issuer: hex_encode(&v2.issuer),
-        attestation_uid: hex_encode(&v2.attestation_uid),
-        data_hex: String::new(), // encrypted payload decoded by caller with shared secret
-        nonce: hex_encode(&v2.nonce),
-        merkle_leaf_preimage,
-        tx_hash: ann.tx_hash.clone(),
-        slot: ann.block_number,
-        is_valid,
-        issuer_authorized,
-        expiration_slot,
-    });
+        results.push(V2StealthAttestation {
+            stealth_address: stealth_addr_hex,
+            schema_id: hex_encode(&v2.schema_id),
+            schema_name: Some(schema.name.clone()),
+            issuer: hex_encode(&v2.issuer),
+            attestation_uid: hex_encode(&v2.attestation_uid),
+            data_hex: String::new(), // encrypted payload decoded by caller with shared secret
+            nonce: hex_encode(&v2.nonce),
+            merkle_leaf_preimage,
+            tx_hash: ann.tx_hash.clone(),
+            slot: ann.block_number,
+            is_valid,
+            issuer_authorized,
+            expiration_slot,
+        });
     }
 
     Ok(results)
@@ -503,9 +504,15 @@ mod tests {
         let issuer = [0u8; 32];
         let hex = hex_encode(&issuer);
         let field = bytes_to_field_decimal(&issuer);
-        
-        assert_eq!(hex, "0000000000000000000000000000000000000000000000000000000000000000");
-        assert_eq!(field, "0x0000000000000000000000000000000000000000000000000000000000000000");
+
+        assert_eq!(
+            hex,
+            "0000000000000000000000000000000000000000000000000000000000000000"
+        );
+        assert_eq!(
+            field,
+            "0x0000000000000000000000000000000000000000000000000000000000000000"
+        );
     }
 
     #[test]
@@ -517,21 +524,27 @@ mod tests {
         }
         let hex = hex_encode(&issuer);
         let field = bytes_to_field_decimal(&issuer);
-        
-        assert_eq!(hex, "0102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f");
-        assert_eq!(field, "0x0102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f");
+
+        assert_eq!(
+            hex,
+            "0102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f"
+        );
+        assert_eq!(
+            field,
+            "0x0102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f"
+        );
     }
 
     #[test]
     fn issuer_encoding_big_endian_interpretation() {
         // Verify big-endian interpretation: first byte is most significant
         let mut issuer = [0u8; 32];
-        issuer[0] = 0xFF;  // Most significant byte
+        issuer[0] = 0xFF; // Most significant byte
         issuer[31] = 0x01; // Least significant byte
-        
+
         let hex = hex_encode(&issuer);
         let field = bytes_to_field_decimal(&issuer);
-        
+
         // Should start with FF and end with 01
         assert!(hex.starts_with("ff"));
         assert!(hex.ends_with("01"));
@@ -543,31 +556,33 @@ mod tests {
         // Verify field element is 0x-prefixed hex with 64 hex digits
         let issuer = [0xABu8; 32];
         let field = bytes_to_field_decimal(&issuer);
-        
+
         assert!(field.starts_with("0x"));
         assert_eq!(field.len(), 66); // "0x" + 64 hex digits
-        assert_eq!(field, "0xabababababababababababababababababababababababababababababababab");
+        assert_eq!(
+            field,
+            "0xabababababababababababababababababababababababababababababababab"
+        );
     }
 
     #[test]
     fn issuer_encoding_roundtrip_hex() {
         // Verify hex encoding is reversible
         let issuer = [
-            0x12, 0x34, 0x56, 0x78, 0x9a, 0xbc, 0xde, 0xf0,
-            0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88,
-            0x99, 0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0xff, 0x00,
-            0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08,
+            0x12, 0x34, 0x56, 0x78, 0x9a, 0xbc, 0xde, 0xf0, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66,
+            0x77, 0x88, 0x99, 0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0xff, 0x00, 0x01, 0x02, 0x03, 0x04,
+            0x05, 0x06, 0x07, 0x08,
         ];
-        
+
         let hex = hex_encode(&issuer);
         let field = bytes_to_field_decimal(&issuer);
-        
+
         // Field should be 0x + hex
         assert_eq!(field, format!("0x{}", hex));
-        
+
         // Hex should be lowercase
         assert_eq!(hex, hex.to_lowercase());
-        
+
         // Hex should have exactly 64 characters (32 bytes * 2)
         assert_eq!(hex.len(), 64);
     }
@@ -578,10 +593,13 @@ mod tests {
         // BabyJubJub x-coordinates have specific properties; our issuer is just raw bytes
         let issuer = [0xFFu8; 32];
         let field = bytes_to_field_decimal(&issuer);
-        
+
         // Should be treated as big-endian integer, not any special curve point
-        assert_eq!(field, "0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff");
-        
+        assert_eq!(
+            field,
+            "0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+        );
+
         // This value is > BN254_MODULUS, so it would be reduced in circuit
         // But the encoding itself is canonical: raw bytes as big-endian integer
     }
@@ -591,24 +609,28 @@ mod tests {
         // Verify that issuer encoding is consistent:
         // scanner extracts issuer as 32 bytes → hex → field element
         // circuit receives field element → uses in Poseidon hash
-        
+
         let issuer_bytes = [
-            0x30, 0x64, 0x4e, 0x72, 0xe1, 0x31, 0xa0, 0x26,
-            0xb8, 0x2b, 0x99, 0xc8, 0xd5, 0x5a, 0x06, 0x16,
-            0xe6, 0xff, 0x0c, 0xdc, 0x4f, 0xee, 0x0e, 0x17,
-            0x88, 0x4d, 0x8c, 0x08, 0x3c, 0x05, 0x5c, 0xf7,
+            0x30, 0x64, 0x4e, 0x72, 0xe1, 0x31, 0xa0, 0x26, 0xb8, 0x2b, 0x99, 0xc8, 0xd5, 0x5a,
+            0x06, 0x16, 0xe6, 0xff, 0x0c, 0xdc, 0x4f, 0xee, 0x0e, 0x17, 0x88, 0x4d, 0x8c, 0x08,
+            0x3c, 0x05, 0x5c, 0xf7,
         ];
-        
+
         let hex = hex_encode(&issuer_bytes);
         let field = bytes_to_field_decimal(&issuer_bytes);
-        
+
         // All three representations should be consistent
-        assert_eq!(hex, "30644e72e131a0264b82b99c8d55a0616e6ff0cdc4fee0e17884d8c083c055cf7");
-        assert_eq!(field, "0x30644e72e131a0264b82b99c8d55a0616e6ff0cdc4fee0e17884d8c083c055cf7");
-        
+        assert_eq!(
+            hex,
+            "30644e72e131a0264b82b99c8d55a0616e6ff0cdc4fee0e17884d8c083c055cf7"
+        );
+        assert_eq!(
+            field,
+            "0x30644e72e131a0264b82b99c8d55a0616e6ff0cdc4fee0e17884d8c083c055cf7"
+        );
+
         // Verify this is BN254_MODULUS - 1 (largest valid field element)
         // BN254_MODULUS = 21888242871839275222246405745257275088548364400416034343698204186575808495617
         // BN254_MODULUS - 1 = 0x30644e72e131a0264b82b99c8d55a0616e6ff0cdc4fee0e17884d8c083c055cf7
     }
 }
-

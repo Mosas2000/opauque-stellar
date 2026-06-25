@@ -8,7 +8,11 @@ use soroban_sdk::{
 };
 
 /// Stealth Meta-Address Registry — maps Stellar accounts to stealth meta-addresses.
-/// Equivalent to ERC-6538. scheme_id 1 = secp256k1 with view tags.
+/// Equivalent to ERC-6538.
+///
+/// Supported schemes:
+/// - scheme_id 1 = secp256k1 DKSAP, 66 bytes: compressed view key || compressed spend key.
+/// - scheme_id 2 = Stellar-native Ed25519 DKSAP, 64 bytes: raw view key || raw spend key.
 #[contract]
 pub struct StealthRegistry;
 
@@ -32,7 +36,11 @@ pub enum RegistryError {
     InvalidMetaAddress = 1,
     InvalidPrefix = 2,
     SameKeys = 3,
+    UnsupportedSchemeId = 4,
 }
+
+pub const SCHEME_ID_SECP256K1: u64 = 1;
+pub const SCHEME_ID_ED25519: u64 = 2;
 
 fn registry_key(registrant: &Address, scheme_id: u64) -> (Symbol, Address, u64) {
     (
@@ -63,6 +71,15 @@ fn is_valid_secp256k1_pubkey(bytes: &Bytes) -> bool {
     prefix == 0x02 || prefix == 0x03
 }
 
+fn is_all_zero(bytes: &Bytes) -> bool {
+    for i in 0..bytes.len() {
+        if bytes.get(i).unwrap_or(0) != 0 {
+            return false;
+        }
+    }
+    true
+}
+
 #[contractimpl]
 impl StealthRegistry {
     pub fn register_keys(
@@ -72,20 +89,39 @@ impl StealthRegistry {
         stealth_meta_address: Bytes,
     ) -> Result<(), RegistryError> {
         registrant.require_auth();
-        if stealth_meta_address.len() != 66 {
-            return Err(RegistryError::InvalidMetaAddress);
-        }
 
-        // Validate prefixes for both keys (DHKP: view and spend keys)
-        let view_key = stealth_meta_address.slice(0..33);
-        let spend_key = stealth_meta_address.slice(33..66);
+        match scheme_id {
+            SCHEME_ID_SECP256K1 => {
+                if stealth_meta_address.len() != 66 {
+                    return Err(RegistryError::InvalidMetaAddress);
+                }
 
-        if !is_valid_secp256k1_pubkey(&view_key) || !is_valid_secp256k1_pubkey(&spend_key) {
-            return Err(RegistryError::InvalidPrefix);
-        }
+                let view_key = stealth_meta_address.slice(0..33);
+                let spend_key = stealth_meta_address.slice(33..66);
 
-        if view_key == spend_key {
-            return Err(RegistryError::SameKeys);
+                if !is_valid_secp256k1_pubkey(&view_key) || !is_valid_secp256k1_pubkey(&spend_key) {
+                    return Err(RegistryError::InvalidPrefix);
+                }
+
+                if view_key == spend_key {
+                    return Err(RegistryError::SameKeys);
+                }
+            }
+            SCHEME_ID_ED25519 => {
+                if stealth_meta_address.len() != 64 {
+                    return Err(RegistryError::InvalidMetaAddress);
+                }
+
+                let view_key = stealth_meta_address.slice(0..32);
+                let spend_key = stealth_meta_address.slice(32..64);
+                if is_all_zero(&view_key) || is_all_zero(&spend_key) {
+                    return Err(RegistryError::InvalidMetaAddress);
+                }
+                if view_key == spend_key {
+                    return Err(RegistryError::SameKeys);
+                }
+            }
+            _ => return Err(RegistryError::UnsupportedSchemeId),
         }
 
         // Increment nonce and store
@@ -191,6 +227,17 @@ mod test {
         bytes
     }
 
+    fn valid_ed25519_meta_address(env: &Env) -> Bytes {
+        let mut bytes = Bytes::new(env);
+        for _ in 0..32 {
+            bytes.push_back(0x11u8);
+        }
+        for _ in 0..32 {
+            bytes.push_back(0x22u8);
+        }
+        bytes
+    }
+
     #[test]
     fn test_register_keys_success() {
         let Setup {
@@ -205,6 +252,37 @@ mod test {
 
         let resolved = client.resolve(&registrant, &scheme_id);
         assert_eq!(resolved, Some(meta));
+    }
+
+    #[test]
+    fn test_register_keys_ed25519_success() {
+        let Setup {
+            env,
+            client,
+            registrant,
+        } = setup();
+        let meta = valid_ed25519_meta_address(&env);
+        let scheme_id: u64 = SCHEME_ID_ED25519;
+
+        client.register_keys(&registrant, &scheme_id, &meta);
+
+        let resolved = client.resolve(&registrant, &scheme_id);
+        assert_eq!(resolved, Some(meta));
+    }
+
+    #[test]
+    fn test_register_keys_ed25519_rejects_wrong_length() {
+        let Setup {
+            env,
+            client,
+            registrant,
+        } = setup();
+        let mut meta = Bytes::new(&env);
+        for _ in 0..63 {
+            meta.push_back(0x11u8);
+        }
+        let result = client.try_register_keys(&registrant, &SCHEME_ID_ED25519, &meta);
+        assert_eq!(result, Err(Ok(RegistryError::InvalidMetaAddress)));
     }
 
     #[test]

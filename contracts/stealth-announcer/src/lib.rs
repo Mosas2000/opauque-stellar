@@ -11,14 +11,17 @@ use soroban_sdk::{
 
 /// Stealth Address Announcer — emits events when funds are sent to a stealth address.
 /// scheme_id 1 = secp256k1; metadata[0] = view tag.
+/// scheme_id 2 = Stellar-native Ed25519; metadata[0] = view tag.
 ///
 /// Supported schemes (v1):
 /// - 1: secp256k1; stealth identifier is a 20-byte raw identifier (e.g., RIPEMD160 output).
+/// - 2: Ed25519; stealth identifier is a 32-byte raw Stellar account public key.
 ///
 /// Note: the contract validates binary payloads only. Higher-level encodings (hex/base58)
 /// must be decoded by the caller into the raw byte representation prior to calling this
 /// contract. Scanners MUST interpret stealth_address as a raw 20-byte identifier for
-/// scheme 1; this on-chain validation enforces that invariant so scanners and the
+/// scheme 1 and a raw 32-byte Ed25519 public key for scheme 2; this on-chain validation
+/// enforces those invariants so scanners and the
 /// contract remain perfectly aligned.
 #[contract]
 pub struct StealthAnnouncer;
@@ -52,7 +55,7 @@ pub enum AnnouncerError {
     MetadataMissingViewTag = 2,
     /// Key is 33 bytes but first byte is not 0x02 or 0x03 (compressed secp256k1 prefix).
     InvalidKeyPrefix = 3,
-    /// Unsupported or unrecognised scheme id (only 1 is supported in v1).
+    /// Unsupported or unrecognised scheme id.
     UnsupportedSchemeId = 4,
     /// Stealth address does not match required length for the scheme.
     InvalidStealthAddressLength = 5,
@@ -64,7 +67,10 @@ pub enum AnnouncerError {
 
 // Registry/config for supported schemes. Keep as a simple allowlist so adding future
 // schemes requires only updating this list (and associated validation logic for that scheme).
-const SUPPORTED_SCHEMES: [u64; 1] = [1u64];
+pub const SCHEME_ID_SECP256K1: u64 = 1;
+pub const SCHEME_ID_ED25519: u64 = 2;
+
+const SUPPORTED_SCHEMES: [u64; 2] = [SCHEME_ID_SECP256K1, SCHEME_ID_ED25519];
 
 fn log_key(caller: &Address, log_id: &Bytes) -> (Symbol, Address, Bytes) {
     (
@@ -188,7 +194,7 @@ impl StealthAnnouncer {
         match scheme_id {
             // Scheme 1: secp256k1. Stealth identifier is a 20-byte raw identifier
             // (e.g., RIPEMD160(pubkey)). Scanners expect exactly 20 bytes.
-            1 => {
+            SCHEME_ID_SECP256K1 => {
                 if stealth_address.len() != 20 {
                     return Err(AnnouncerError::InvalidStealthAddressLength);
                 }
@@ -198,18 +204,34 @@ impl StealthAnnouncer {
                 // they will be rejected above by length mismatch. This ensures contract
                 // validation exactly matches scanner expectations (raw 20-byte input).
             }
-            // Future schemes may add bespoke validation here.
+            // Scheme 2: Stellar-native Ed25519. The stealth identifier is the
+            // raw 32-byte Ed25519 account public key used by Stellar strkeys.
+            SCHEME_ID_ED25519 => {
+                if stealth_address.len() != 32 {
+                    return Err(AnnouncerError::InvalidStealthAddressLength);
+                }
+            }
             _ => return Err(AnnouncerError::UnsupportedSchemeId),
         }
 
-        // Ephemeral key validation (unchanged): must be compressed secp256k1 pubkey
-        // 33 bytes, starting with 0x02 or 0x03.
-        if ephemeral_pub_key.len() != 33 {
-            return Err(AnnouncerError::InvalidEphemeralKey);
-        }
-        match ephemeral_pub_key.get(0) {
-            Some(0x02) | Some(0x03) => {}
-            _ => return Err(AnnouncerError::InvalidKeyPrefix),
+        match scheme_id {
+            SCHEME_ID_SECP256K1 => {
+                // Compressed secp256k1 pubkey: 33 bytes, starting with 0x02 or 0x03.
+                if ephemeral_pub_key.len() != 33 {
+                    return Err(AnnouncerError::InvalidEphemeralKey);
+                }
+                match ephemeral_pub_key.get(0) {
+                    Some(0x02) | Some(0x03) => {}
+                    _ => return Err(AnnouncerError::InvalidKeyPrefix),
+                }
+            }
+            SCHEME_ID_ED25519 => {
+                // Raw Stellar Ed25519 public key.
+                if ephemeral_pub_key.len() != 32 {
+                    return Err(AnnouncerError::InvalidEphemeralKey);
+                }
+            }
+            _ => return Err(AnnouncerError::UnsupportedSchemeId),
         }
 
         // Metadata must be non-empty and contain the view tag as first byte.
@@ -266,6 +288,22 @@ mod test {
         let mut bytes = Bytes::new(env);
         for _ in 0..20 {
             bytes.push_back(0xabu8);
+        }
+        bytes
+    }
+
+    fn ed25519_stealth_address(env: &Env) -> Bytes {
+        let mut bytes = Bytes::new(env);
+        for _ in 0..32 {
+            bytes.push_back(0xcdu8);
+        }
+        bytes
+    }
+
+    fn valid_ed25519_ephemeral_key(env: &Env) -> Bytes {
+        let mut bytes = Bytes::new(env);
+        for _ in 0..32 {
+            bytes.push_back(0xefu8);
         }
         bytes
     }
@@ -524,7 +562,61 @@ mod test {
         client.announce(&caller, &1u64, &addr, &ephem, &meta);
         assert_eq!(env.events().all().events().len(), 1);
 
-        let result = client.try_announce(&caller, &2u64, &addr, &ephem, &meta);
+        let ed_addr = ed25519_stealth_address(&env);
+        let ed_ephem = valid_ed25519_ephemeral_key(&env);
+        client.announce(&caller, &2u64, &ed_addr, &ed_ephem, &meta);
+        assert_eq!(env.events().all().events().len(), 1);
+    }
+
+    #[test]
+    fn test_announce_accepts_ed25519_scheme() {
+        let Setup {
+            env,
+            client,
+            caller,
+        } = setup();
+        client.announce(
+            &caller,
+            &SCHEME_ID_ED25519,
+            &ed25519_stealth_address(&env),
+            &valid_ed25519_ephemeral_key(&env),
+            &valid_metadata(&env),
+        );
+        assert!(!env
+            .events()
+            .all()
+            .filter_by_contract(&client.address)
+            .events()
+            .is_empty());
+    }
+
+    #[test]
+    fn test_announce_rejects_ed25519_wrong_payload_lengths() {
+        let Setup {
+            env,
+            client,
+            caller,
+        } = setup();
+        let mut short_addr = Bytes::new(&env);
+        for _ in 0..31 {
+            short_addr.push_back(0xcdu8);
+        }
+        let result = client.try_announce(
+            &caller,
+            &SCHEME_ID_ED25519,
+            &short_addr,
+            &valid_ed25519_ephemeral_key(&env),
+            &valid_metadata(&env),
+        );
+        assert!(result.is_err());
+
+        let result = client.try_announce(
+            &caller,
+            &SCHEME_ID_ED25519,
+            &ed25519_stealth_address(&env),
+            &valid_ephemeral_key(&env),
+            &valid_metadata(&env),
+        );
         assert!(result.is_err());
     }
 
