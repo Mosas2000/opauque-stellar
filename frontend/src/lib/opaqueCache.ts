@@ -8,6 +8,12 @@ import { openDB, type DBSchema, type IDBPDatabase } from "idb";
 
 export type CachedAnnouncement = {
   id: string;
+  /**
+   * Composite dedup key derived from the Stellar Soroban event's own unique ID.
+   * Used to prevent duplicate entries from reorgs or replayed RPC responses.
+   * Format: Soroban event `id` when available; falls back to `${txSig}-${logIndex}`.
+   */
+  eventId: string;
   /** @deprecated Use `network` instead (Stellar) */
   cluster: string;
   /** @deprecated Use `ledger` instead (Stellar) */
@@ -32,7 +38,12 @@ interface OpaqueCacheDBSchema extends DBSchema {
   announcements: {
     key: string;
     value: CachedAnnouncement;
-    indexes: { "by-cluster": string; "by-slot": number; "by-cluster-slot": [string, number] };
+    indexes: {
+      "by-cluster": string;
+      "by-slot": number;
+      "by-cluster-slot": [string, number];
+      "by-event-id": string;
+    };
   };
   syncState: {
     key: string;
@@ -41,7 +52,8 @@ interface OpaqueCacheDBSchema extends DBSchema {
 }
 
 const DB_NAME = "OpaqueCache";
-const DB_VERSION = 2;
+/** Schema version 3: adds `eventId` field + `by-event-id` index for dedup (#402). */
+const DB_VERSION = 3;
 
 let dbPromise: Promise<IDBPDatabase<OpaqueCacheDBSchema>> | null = null;
 
@@ -59,6 +71,7 @@ function getDB(): Promise<IDBPDatabase<OpaqueCacheDBSchema>> {
         announcements.createIndex("by-cluster", "cluster");
         announcements.createIndex("by-slot", "slot");
         announcements.createIndex("by-cluster-slot", ["cluster", "slot"]);
+        announcements.createIndex("by-event-id", "eventId");
         db.createObjectStore("syncState", { keyPath: "cluster" });
       },
     });
@@ -66,13 +79,25 @@ function getDB(): Promise<IDBPDatabase<OpaqueCacheDBSchema>> {
   return dbPromise;
 }
 
+/** Legacy record ID from txSig + logIndex (fallback when no Soroban event ID is available). */
 export function announcementId(cluster: string, txSig: string, logIndex: number): string {
   return `${cluster}-${txSig}-${logIndex}`;
+}
+
+/**
+ * Derives the canonical IndexedDB record ID from a Stellar Soroban event ID.
+ * Using the native event ID as the dedup key prevents duplicate entries when
+ * the same event is re-fetched after a reorg or RPC replay (#402).
+ */
+export function announcementIdFromEventId(cluster: string, eventId: string): string {
+  return `${cluster}:${eventId}`;
 }
 
 export async function putAnnouncements(
   cluster: string,
   logs: Array<{
+    /** Stellar Soroban event unique ID — used as the primary dedup key when present. */
+    eventId?: string | null;
     transactionSignature?: string | null;
     logIndex?: number | null;
     slot?: number | null;
@@ -83,13 +108,14 @@ export async function putAnnouncements(
   const tx = db.transaction("announcements", "readwrite");
   for (const log of logs) {
     const slot = log.slot ?? 0;
-    const id = announcementId(
-      cluster,
-      log.transactionSignature ?? "",
-      log.logIndex ?? 0
-    );
+    const fallbackEventId = `${log.transactionSignature ?? ""}-${log.logIndex ?? 0}`;
+    const resolvedEventId = log.eventId ?? fallbackEventId;
+    const id = log.eventId
+      ? announcementIdFromEventId(cluster, log.eventId)
+      : announcementId(cluster, log.transactionSignature ?? "", log.logIndex ?? 0);
     await tx.store.put({
       id,
+      eventId: resolvedEventId,
       cluster,
       slot,
       transactionSignature: log.transactionSignature ?? "",

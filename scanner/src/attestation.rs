@@ -463,6 +463,94 @@ fn bytes_to_field_decimal(bytes: &[u8; 32]) -> String {
 }
 
 // =============================================================================
+// Stellar-native attestation types and scanning (scheme_id = 2)
+// =============================================================================
+
+// The EVM-path types above (`RawAnnouncement`, `scan_for_attestations`) use
+// `alloy_primitives::Address` which is 20 bytes and irrelevant for Stellar.
+// The Stellar/Ed25519 path uses raw 32-byte Ed25519 public keys throughout,
+// with no Address type in sight (#400).
+
+/// Raw Stellar Ed25519 stealth announcement — Stellar-native equivalent of
+/// `RawAnnouncement` for scheme_id = 2. Uses `[u8; 32]` for the stealth
+/// account and ephemeral key rather than `alloy_primitives::Address`.
+#[derive(Clone, Debug)]
+pub struct StellarRawAnnouncement {
+    /// Raw 32-byte Ed25519 public key of the stealth account.
+    /// This is the key inside a Stellar `G…` strkey; NOT an EVM address.
+    pub stealth_account: [u8; 32],
+    pub view_tag: u8,
+    /// Raw 32-byte Ed25519 ephemeral public key from the announcement.
+    pub ephemeral_pubkey: [u8; 32],
+    pub metadata: Vec<u8>,
+    pub tx_hash: String,
+    pub block_number: u64,
+}
+
+/// A discovered attestation on the Stellar-native (Ed25519) code path.
+/// `stealth_account` is hex-encoded 32 bytes (the raw Ed25519 key),
+/// matching the output of `derive_stealth_account_ed25519`.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct StellarStealthAttestation {
+    /// Hex-encoded 32-byte Ed25519 stealth account key (no `0x` prefix).
+    pub stealth_account: String,
+    pub attestation_id: u64,
+    pub tx_hash: String,
+    pub block_number: u64,
+    /// Raw 32-byte Ed25519 ephemeral public key used for this announcement.
+    pub ephemeral_pubkey: Vec<u8>,
+}
+
+/// Scans Stellar Ed25519 announcements for attestations owned by this recipient.
+///
+/// Mirrors `scan_for_attestations` but operates entirely on Stellar-native
+/// Ed25519 keys (`[u8; 32]`). No EVM `Address` type is used on this path.
+///
+/// Two-pass filter:
+/// 1. View-tag pre-check via `check_announcement_view_tag_ed25519`
+/// 2. Full Ed25519 stealth account derivation + attestation extraction
+pub fn scan_for_stellar_attestations(
+    announcements: &[StellarRawAnnouncement],
+    view_seed: &[u8; 32],
+    spend_pubkey: &[u8; 32],
+) -> Result<Vec<StellarStealthAttestation>, crate::scanner::StealthAddressError> {
+    use crate::scanner::{
+        check_announcement_view_tag_ed25519, derive_stealth_account_ed25519, ViewTagCheck,
+    };
+
+    let mut results = Vec::new();
+
+    for ann in announcements {
+        // Step 1: View-tag fast path (Ed25519-native, no EVM Address).
+        match check_announcement_view_tag_ed25519(ann.view_tag, view_seed, &ann.ephemeral_pubkey)? {
+            ViewTagCheck::NoMatch => continue,
+            ViewTagCheck::PossibleMatch => {}
+        }
+
+        // Step 2: Full Ed25519 derivation to confirm ownership.
+        let (derived_account, _) =
+            derive_stealth_account_ed25519(view_seed, spend_pubkey, &ann.ephemeral_pubkey)?;
+
+        if derived_account != ann.stealth_account {
+            continue;
+        }
+
+        // Step 3: Extract attestation_id from V1 metadata if present.
+        if let Some(attestation_id) = extract_attestation_id(&ann.metadata) {
+            results.push(StellarStealthAttestation {
+                stealth_account: hex_encode(&ann.stealth_account),
+                attestation_id,
+                tx_hash: ann.tx_hash.clone(),
+                block_number: ann.block_number,
+                ephemeral_pubkey: ann.ephemeral_pubkey.to_vec(),
+            });
+        }
+    }
+
+    Ok(results)
+}
+
+// =============================================================================
 // Tests
 // =============================================================================
 
@@ -632,5 +720,133 @@ mod tests {
         // Verify this is BN254_MODULUS - 1 (largest valid field element)
         // BN254_MODULUS = 21888242871839275222246405745257275088548364400416034343698204186575808495617
         // BN254_MODULUS - 1 = 0x30644e72e131a0264b82b99c8d55a0616e6ff0cdc4fee0e17884d8c083c055cf7
+    }
+
+    // =========================================================================
+    // Stellar-native Ed25519 attestation scanning (#400)
+    // =========================================================================
+
+    /// Derives a deterministic Ed25519 public key from a 32-byte seed
+    /// (identical to the helper in scanner.rs).
+    fn ed25519_pubkey_from_seed_local(seed: &[u8; 32]) -> [u8; 32] {
+        use curve25519_dalek::{constants::ED25519_BASEPOINT_POINT, Scalar as Ed25519Scalar};
+        use sha2::{Digest, Sha512};
+        let digest = Sha512::digest(seed);
+        let mut scalar = [0u8; 32];
+        scalar.copy_from_slice(&digest[..32]);
+        scalar[0] &= 248;
+        scalar[31] &= 63;
+        scalar[31] |= 64;
+        let s = Ed25519Scalar::from_bytes_mod_order(scalar);
+        (ED25519_BASEPOINT_POINT * s).compress().to_bytes()
+    }
+
+    #[test]
+    fn stellar_scan_detects_matching_attestation() {
+        use crate::scanner::derive_stealth_account_ed25519;
+        use super::{
+            encode_attestation_metadata, scan_for_stellar_attestations, StellarRawAnnouncement,
+        };
+
+        let view_seed = [0xAAu8; 32];
+        let spend_seed = [0xBBu8; 32];
+        let ephemeral_seed = [0xCCu8; 32];
+
+        let spend_pubkey = ed25519_pubkey_from_seed_local(&spend_seed);
+        let ephemeral_pubkey = ed25519_pubkey_from_seed_local(&ephemeral_seed);
+
+        let (stealth_account, view_tag) =
+            derive_stealth_account_ed25519(&view_seed, &spend_pubkey, &ephemeral_pubkey).unwrap();
+
+        let attestation_id = 999u64;
+        let metadata = encode_attestation_metadata(view_tag, attestation_id);
+
+        let announcements = vec![StellarRawAnnouncement {
+            stealth_account,
+            view_tag,
+            ephemeral_pubkey,
+            metadata,
+            tx_hash: "txhash123".to_string(),
+            block_number: 42,
+        }];
+
+        let results =
+            scan_for_stellar_attestations(&announcements, &view_seed, &spend_pubkey).unwrap();
+
+        assert_eq!(results.len(), 1, "scanner must detect the matching attestation");
+        assert_eq!(results[0].attestation_id, attestation_id);
+        assert_eq!(results[0].tx_hash, "txhash123");
+        // Verify output is Stellar-native hex (32 bytes, no '0x' prefix).
+        assert_eq!(
+            results[0].stealth_account,
+            hex_encode(&stealth_account),
+            "stealth_account must match Ed25519 derivation output"
+        );
+    }
+
+    #[test]
+    fn stellar_scan_skips_wrong_account() {
+        use super::{
+            encode_attestation_metadata, scan_for_stellar_attestations, StellarRawAnnouncement,
+        };
+
+        let view_seed = [0x11u8; 32];
+        let spend_seed = [0x22u8; 32];
+        let ephemeral_seed = [0x33u8; 32];
+
+        let spend_pubkey = ed25519_pubkey_from_seed_local(&spend_seed);
+        let ephemeral_pubkey = ed25519_pubkey_from_seed_local(&ephemeral_seed);
+
+        // Use a wrong stealth account (all zeros) — should not match.
+        let wrong_account = [0u8; 32];
+        let view_tag = 0x42;
+        let metadata = encode_attestation_metadata(view_tag, 1u64);
+
+        let announcements = vec![StellarRawAnnouncement {
+            stealth_account: wrong_account,
+            view_tag,
+            ephemeral_pubkey,
+            metadata,
+            tx_hash: "tx_wrong".to_string(),
+            block_number: 1,
+        }];
+
+        let results =
+            scan_for_stellar_attestations(&announcements, &view_seed, &spend_pubkey).unwrap();
+
+        assert!(
+            results.is_empty(),
+            "scanner must not match an announcement with a wrong stealth account"
+        );
+    }
+
+    #[test]
+    fn stellar_scan_uses_no_evm_address_type() {
+        // This test ensures the Stellar code path compiles without any
+        // alloy_primitives::Address usage — verified at the type level by
+        // `StellarRawAnnouncement` and `StellarStealthAttestation` using `[u8; 32]`
+        // and `String` respectively, with no Address in scope.
+        use super::{StellarRawAnnouncement, StellarStealthAttestation};
+
+        let ann = StellarRawAnnouncement {
+            stealth_account: [0u8; 32],
+            view_tag: 0,
+            ephemeral_pubkey: [0u8; 32],
+            metadata: vec![],
+            tx_hash: String::new(),
+            block_number: 0,
+        };
+        // stealth_account is [u8; 32], not Address.
+        assert_eq!(ann.stealth_account.len(), 32);
+
+        let att = StellarStealthAttestation {
+            stealth_account: "0000".to_string(),
+            attestation_id: 0,
+            tx_hash: String::new(),
+            block_number: 0,
+            ephemeral_pubkey: vec![],
+        };
+        // stealth_account is a plain hex String, not Address.
+        let _: String = att.stealth_account;
     }
 }

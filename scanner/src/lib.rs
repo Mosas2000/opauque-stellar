@@ -295,7 +295,8 @@ pub fn check_announcement_view_tag_ed25519_wasm(
 // =============================================================================
 
 use attestation::{
-    scan_for_attestations, scan_for_attestations_v2, RawAnnouncement, SchemaInfo,
+    scan_for_attestations, scan_for_attestations_v2, scan_for_stellar_attestations,
+    RawAnnouncement, SchemaInfo, StellarRawAnnouncement,
     StealthAttestation as AttestationRecord, V2StealthAttestation,
 };
 use merkle::{field_string_to_bytes, CircuitWitness, MerkleTree};
@@ -389,6 +390,85 @@ pub fn scan_attestations_wasm(
 
     let results = scan_for_attestations(&announcements, &view_privkey, &spend_pubkey)
         .map_err(|e| JsValue::from_str(&format!("Scan error: {}", e)))?;
+
+    serde_json::to_string(&results)
+        .map_err(|e| JsValue::from_str(&format!("Serialize error: {}", e)))
+}
+
+/// Scans Stellar Ed25519 announcements for V1 attestations owned by this recipient.
+///
+/// Uses Stellar-native `[u8; 32]` Ed25519 keys end-to-end with no EVM Address
+/// type in the code path. For scheme_id = 2 announcements (#400).
+///
+/// # Arguments
+/// * `announcements_json` - JSON array of announcements, each with:
+///   `{ stealthAccount, viewTag, ephemeralPubKey, metadata, txHash, blockNumber }`
+///   where `stealthAccount` and `ephemeralPubKey` are 64-char hex strings (32 bytes each).
+/// * `view_seed_bytes` - 32-byte viewing seed (Ed25519 scalar seed)
+/// * `spend_pubkey_bytes` - 32-byte Ed25519 spending public key
+///
+/// # Returns
+/// JSON array of `StellarStealthAttestation` objects.
+#[wasm_bindgen]
+pub fn scan_stellar_attestations_wasm(
+    announcements_json: &str,
+    view_seed_bytes: &[u8],
+    spend_pubkey_bytes: &[u8],
+) -> Result<String, JsValue> {
+    let view_seed = bytes_to_array32(view_seed_bytes, "Ed25519 view seed")?;
+    let spend_pubkey = bytes_to_array32(spend_pubkey_bytes, "Ed25519 spend pubkey")?;
+
+    let raw_anns: Vec<serde_json::Value> = serde_json::from_str(announcements_json)
+        .map_err(|e| JsValue::from_str(&format!("Invalid JSON: {}", e)))?;
+
+    let mut announcements = Vec::with_capacity(raw_anns.len());
+    for ann in &raw_anns {
+        // Skip unsupported event schema versions (same policy as EVM path).
+        if let Some(ver) = ann["eventVersion"].as_u64().map(|v| v as u32) {
+            if !is_supported_event_version(ver) {
+                #[cfg(target_arch = "wasm32")]
+                web_sys::console::warn_1(
+                    &format!("Skipping Stellar announcement with unsupported event_version {ver}").into(),
+                );
+                #[cfg(not(target_arch = "wasm32"))]
+                eprintln!("Skipping Stellar announcement with unsupported event_version {ver}");
+                continue;
+            }
+        }
+
+        let stealth_hex = ann["stealthAccount"].as_str().unwrap_or_default();
+        let stealth_clean = stealth_hex.trim_start_matches("0x");
+        let stealth_vec = hex::decode(stealth_clean)
+            .map_err(|e| JsValue::from_str(&format!("Invalid stealthAccount hex: {}", e)))?;
+        let stealth_account = bytes_to_array32(&stealth_vec, "Stellar stealth account")?;
+
+        let view_tag = ann["viewTag"].as_u64().unwrap_or(0) as u8;
+
+        let eph_hex = ann["ephemeralPubKey"].as_str().unwrap_or_default();
+        let eph_clean = eph_hex.trim_start_matches("0x");
+        let eph_vec = hex::decode(eph_clean)
+            .map_err(|e| JsValue::from_str(&format!("Invalid ephemeralPubKey hex: {}", e)))?;
+        let ephemeral_pubkey = bytes_to_array32(&eph_vec, "Ed25519 ephemeral pubkey")?;
+
+        let meta_hex = ann["metadata"].as_str().unwrap_or_default();
+        let meta_clean = meta_hex.trim_start_matches("0x");
+        let metadata = hex::decode(meta_clean).unwrap_or_default();
+
+        let tx_hash = ann["txHash"].as_str().unwrap_or_default().to_string();
+        let block_number = ann["blockNumber"].as_u64().unwrap_or(0);
+
+        announcements.push(StellarRawAnnouncement {
+            stealth_account,
+            view_tag,
+            ephemeral_pubkey,
+            metadata,
+            tx_hash,
+            block_number,
+        });
+    }
+
+    let results = scan_for_stellar_attestations(&announcements, &view_seed, &spend_pubkey)
+        .map_err(|e| JsValue::from_str(&format!("Stellar scan error: {}", e)))?;
 
     serde_json::to_string(&results)
         .map_err(|e| JsValue::from_str(&format!("Serialize error: {}", e)))
