@@ -1,0 +1,80 @@
+name: Scanner Testnet Integration
+
+# Scheduled, non-PR-blocking job that validates scanner correctness against
+# live testnet events (#399). Failures trigger a GitHub notification but do
+# NOT block pull requests or the main CI gate.
+
+on:
+  schedule:
+    # Every Monday at 06:00 UTC.
+    - cron: "0 6 * * 1"
+  # Allow manual trigger from the Actions UI for ad-hoc validation.
+  workflow_dispatch:
+
+jobs:
+  scanner-testnet:
+    name: Scan Testnet Fixture Range
+    runs-on: ubuntu-latest
+    # A failure here is surfaced as a notification — not a merge gate.
+    continue-on-error: false
+
+    env:
+      # Pinned fixture ledger range for the known testnet announcements.
+      # Update these together when the testnet announcer contract is redeployed.
+      # Last updated: 2026-06-26
+      FIXTURE_START_LEDGER: "1200000"
+      FIXTURE_END_LEDGER: "1210000"
+      TESTNET_RPC_URL: "https://soroban-testnet.stellar.org"
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+
+      - name: Cache cargo registry and build artifacts
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            scanner/target
+          key: ${{ runner.os }}-scanner-testnet-${{ hashFiles('scanner/Cargo.lock') }}
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: package-lock.json
+
+      - name: Install root dependencies
+        run: npm ci
+
+      - name: Run scanner unit tests (fixture suite)
+        working-directory: scanner
+        run: cargo test --locked -- --test-output immediate
+        env:
+          RUST_LOG: warn
+
+      - name: Probe testnet RPC connectivity
+        run: node scripts/probe-horizon-rpc.mjs
+        env:
+          STELLAR_RPC_URL: ${{ env.TESTNET_RPC_URL }}
+        # Surface connectivity failures clearly before the scan attempt.
+        continue-on-error: false
+
+      - name: Report fixture ledger range (documentation)
+        run: |
+          echo "Scanning testnet fixture ledger range:"
+          echo "  Start ledger: $FIXTURE_START_LEDGER"
+          echo "  End ledger:   $FIXTURE_END_LEDGER"
+          echo "  RPC:          $TESTNET_RPC_URL"
+          echo ""
+          echo "To update the pinned range after a contract redeployment:"
+          echo "  1. Find the new deployment ledger in deployments/v1/testnet.json"
+          echo "  2. Update FIXTURE_START_LEDGER and FIXTURE_END_LEDGER in this file"
+          echo "  3. Commit the change with the new deployment hash"

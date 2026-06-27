@@ -35,8 +35,26 @@ import {
 import { getStoredGhostEntries } from "../store/ghostAddressStore";
 import { getManifestForNetwork } from "../contracts/deploymentManifest";
 import { getNetworkPassphrase } from "../lib/chain";
+import {
+  scanAnnouncementsInWorker,
+  type ScannerAnnouncement,
+} from "../lib/scannerWorker/scannerWorkerClient";
+
+export { scanAnnouncementsInWorker, type ScannerAnnouncement };
 
 const SUPPORTED_EVENT_VERSION = 1;
+
+/**
+ * Number of announcements per scanner worker batch.
+ * Tunable via VITE_SCANNER_CHUNK_SIZE env var; defaults to 200 (#401).
+ */
+export const SCANNER_CHUNK_SIZE: number = (() => {
+  const raw = typeof import.meta !== "undefined"
+    ? (import.meta.env?.VITE_SCANNER_CHUNK_SIZE as string | undefined)
+    : undefined;
+  const parsed = raw != null ? parseInt(raw, 10) : NaN;
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : 200;
+})();
 
 /**
  * Minimal chain-read surface the scanner needs. Backed by the Horizon-derived
@@ -135,7 +153,7 @@ async function fetchLogsAdaptive(
   fromBlock: bigint,
   toBlock: bigint,
   _cluster: StellarNetwork,
-  onChunk: (from: bigint, to: bigint, logs: CachedAnnouncement[], skippedUnsupportedVersions: number) => Promise<void>,
+  onChunk: (from: bigint, to: bigint, logs: Parameters<typeof putAnnouncements>[1], skippedUnsupportedVersions: number) => Promise<void>,
   onRetry?: (attempt: number, delayMs: number, error: string) => void
 ): Promise<void> {
   const publicClient = getSorobanServer();
@@ -188,17 +206,22 @@ async function fetchLogsAdaptive(
     const response = await fetchWithBackoff(Number(currentFrom));
 
     let skippedUnsupportedVersions = 0;
-    const mapped: CachedAnnouncement[] = response.events.flatMap((ev) => {
+    const mapped: Parameters<typeof putAnnouncements>[1] = [];
+
+    for (const ev of response.events) {
       const eventVersion = readEventVersion(ev);
       if (eventVersion != null && eventVersion > SUPPORTED_EVENT_VERSION) {
         skippedUnsupportedVersions += 1;
-        return [];
+        continue;
       }
       // Event value is (scheme_id, stealth_address, caller, ephemeral_pub_key, metadata)
       const val = scValToNative(ev.value) as Uint8Array[];
-      return [{
-        id: `${ev.txHash}:${ev.ledger}`,
-        cluster: _cluster,
+      // Use the Soroban event's own unique ID as the dedup key so that
+      // re-fetching the same event (e.g. after an RPC retry or reorg) always
+      // resolves to the same IndexedDB record, preventing duplicate entries (#402).
+      const eventId: string = (ev as { id?: string }).id ?? `${ev.txHash}-${ev.ledger}`;
+      mapped.push({
+        eventId,
         transactionSignature: ev.txHash,
         logIndex: 0,
         slot: ev.ledger,
@@ -207,8 +230,8 @@ async function fetchLogsAdaptive(
           ephemeralPubKey: "0x" + Buffer.from(val[3]).toString("hex"),
           metadata: "0x" + Buffer.from(val[4]).toString("hex"),
         },
-      }];
-    });
+      });
+    }
 
     await onChunk(currentFrom, currentTo, mapped, skippedUnsupportedVersions);
     currentFrom = currentTo + 1n;

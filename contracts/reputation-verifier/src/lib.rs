@@ -307,6 +307,34 @@ impl ReputationVerifier {
         page
     }
 
+    /// Return the stored `MerkleRootEntry` for a specific root hash.
+    /// Returns `None` if the root has never been committed to this contract.
+    pub fn get_root_entry(env: Env, root: BytesN<32>) -> Option<MerkleRootEntry> {
+        env.storage().persistent().get(&root_key(&root))
+    }
+
+    /// Paginated root history returning full `MerkleRootEntry` records (oldest-first).
+    /// Combines `get_root_history` index lookup with per-entry persistent reads so
+    /// callers can obtain root, ledger, and dataset_hash in a single simulation call.
+    pub fn get_root_entries(env: Env, offset: u32, limit: u32) -> Vec<MerkleRootEntry> {
+        let history: Vec<BytesN<32>> = env
+            .storage()
+            .instance()
+            .get(&history_key(&env))
+            .unwrap_or(Vec::new(&env));
+        let len = history.len();
+        let start = offset.min(len);
+        let end = (start + limit).min(len);
+        let mut entries = Vec::new(&env);
+        for i in start..end {
+            let root = history.get(i).unwrap();
+            if let Some(entry) = env.storage().persistent().get(&root_key(&root)) {
+                entries.push_back(entry);
+            }
+        }
+        entries
+    }
+
     pub fn is_frozen(env: Env) -> bool {
         env.storage()
             .instance()

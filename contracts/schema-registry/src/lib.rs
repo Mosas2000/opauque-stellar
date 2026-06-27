@@ -19,6 +19,9 @@ pub struct SchemaRegistry;
 /// Current event schema version — increment when the event topic/data layout changes.
 /// Scanners should reject events with an unrecognised version rather than misparse them.
 const EVENT_VERSION: u32 = 1;
+/// v2 events carry an extended payload; emitted alongside v1 during the deprecation window.
+/// See docs/rfcs/0002-event-schema-v2-migration.md for the sunset timeline.
+const EVENT_VERSION_V2: u32 = 2;
 
 #[contracttype]
 #[derive(Clone)]
@@ -253,9 +256,15 @@ impl SchemaRegistry {
         auth_ids.push_back(schema_id.clone());
         env.storage().persistent().set(&auth_key, &auth_ids);
 
+        // v1 — retained for scanner backward-compatibility (see RFC 0002 for sunset date).
         env.events().publish(
             (Symbol::new(&env, "SchemaRegistered"), EVENT_VERSION),
-            (schema_id, authority, name),
+            (schema_id.clone(), authority.clone(), name.clone()),
+        );
+        // v2 — extended payload; scanners should prefer this after the transition window.
+        env.events().publish(
+            (Symbol::new(&env, "SchemaRegistered"), EVENT_VERSION_V2),
+            (schema_id, authority, name, version, schema_expiry_ledger),
         );
         Ok(())
     }

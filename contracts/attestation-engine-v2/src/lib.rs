@@ -19,6 +19,9 @@ pub struct AttestationEngineV2;
 /// Current event schema version — increment when the event topic/data layout changes.
 /// Scanners should reject events with an unrecognised version rather than misparse them.
 const EVENT_VERSION: u32 = 1;
+/// v2 events carry an extended payload; emitted alongside v1 during the deprecation window.
+/// See docs/rfcs/0002-event-schema-v2-migration.md for the sunset timeline.
+const EVENT_VERSION_V2: u32 = 2;
 const MAX_ATTESTATION_PAYLOAD_LEN: u32 = 512;
 
 #[contracttype]
@@ -306,6 +309,9 @@ impl AttestationEngineV2 {
             return Err(AttestationError::ExpirationInPast);
         }
         let schema_registry = load_registry(&env)?;
+        // Check schema status (deprecated / expired) before authorization so the engine
+        // returns SchemaDeprecated / SchemaExpired rather than the generic UnauthorizedIssuer.
+        validate_attestation_against_schema(&env, &schema_registry, &schema_id, &data)?;
         let authorized: bool = env.invoke_contract(
             &schema_registry,
             &Symbol::new(&env, "can_issue"),
@@ -314,7 +320,6 @@ impl AttestationEngineV2 {
         if !authorized {
             return Err(AttestationError::UnauthorizedIssuer);
         }
-        validate_attestation_against_schema(&env, &schema_registry, &schema_id, &data)?;
         let issuance_sequence = next_issuance_sequence(&env, &schema_id, &stealth_address_hash);
         let uid = compute_attestation_uid(
             &env,
@@ -342,9 +347,15 @@ impl AttestationEngineV2 {
         env.storage().persistent().set(&key, &attestation);
         bump_instance_counter(&env, issued_count_key(&env), 1);
         bump_instance_counter(&env, active_count_key(&env), 1);
+        // v1 — retained for scanner backward-compatibility (see RFC 0002 for sunset date).
         env.events().publish(
             (Symbol::new(&env, "AttestationCreated"), EVENT_VERSION),
-            (uid.clone(), schema_id, issuer, stealth_address_hash),
+            (uid.clone(), schema_id.clone(), issuer.clone(), stealth_address_hash.clone()),
+        );
+        // v2 — extended payload with lifecycle fields.
+        env.events().publish(
+            (Symbol::new(&env, "AttestationCreated"), EVENT_VERSION_V2),
+            (uid.clone(), schema_id, issuer, stealth_address_hash, ledger, expiration_ledger),
         );
         Ok(uid)
     }
@@ -428,9 +439,15 @@ impl AttestationEngineV2 {
         env.storage().persistent().set(&key, &attestation);
         bump_instance_counter(&env, active_count_key(&env), -1);
         bump_instance_counter(&env, revoked_count_key(&env), 1);
+        // v1 — retained for scanner backward-compatibility (see RFC 0002 for sunset date).
         env.events().publish(
             (Symbol::new(&env, "AttestationRevoked"), EVENT_VERSION),
-            (uid, revoker),
+            (uid.clone(), revoker.clone()),
+        );
+        // v2 — includes revocation ledger and schema for richer indexing.
+        env.events().publish(
+            (Symbol::new(&env, "AttestationRevoked"), EVENT_VERSION_V2),
+            (uid, revoker, attestation.revocation_ledger, attestation.schema_id.clone()),
         );
         Ok(())
     }
@@ -766,10 +783,6 @@ mod property_tests {
     }
 
     /// Invariant: Schema expiry prevents new attestations past expiry boundary.
-    // Quarantined: expired schemas are correctly blocked, but the engine surfaces this as
-    // `UnauthorizedIssuer` (it delegates to the registry's `can_issue`) rather than a distinct
-    // `SchemaExpired`. Behaviour is safe; error-granularity expectation needs reconciliation.
-    #[ignore = "attestation-engine-v2 port: expiry surfaces as UnauthorizedIssuer; needs spec reconciliation"]
     #[test]
     fn property_schema_expiry_prevents_new_attestations() {
         let (env, authority, _engine_id, schema_client, engine_client) = setup();
@@ -1388,9 +1401,6 @@ mod test {
         assert_eq!(result, Err(Ok(AttestationError::InvalidAttestationData)));
     }
 
-    // Quarantined: deprecated schemas are correctly blocked, but the engine surfaces this as
-    // `UnauthorizedIssuer` (via the registry's `can_issue`) rather than `SchemaDeprecated`.
-    #[ignore = "attestation-engine-v2 port: deprecation surfaces as UnauthorizedIssuer; needs spec reconciliation"]
     #[test]
     fn test_attest_rejects_deprecated_schema() {
         let (env, authority, _engine_id, schema_client, engine_client) = setup();
@@ -1417,9 +1427,6 @@ mod test {
         assert_eq!(result, Err(Ok(AttestationError::SchemaDeprecated)));
     }
 
-    // Quarantined: expired schemas are correctly blocked, but the engine surfaces this as
-    // `UnauthorizedIssuer` (via the registry's `can_issue`) rather than `SchemaExpired`.
-    #[ignore = "attestation-engine-v2 port: expiry surfaces as UnauthorizedIssuer; needs spec reconciliation"]
     #[test]
     fn test_attest_rejects_expired_schema() {
         let (env, authority, _engine_id, schema_client, engine_client) = setup();

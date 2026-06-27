@@ -28,6 +28,7 @@ import { isSimulationSuccess } from "../lib/sorobanErrors";
 import { deployedAddresses } from "../contracts/deployedAddresses";
 import { useWallet } from "../hooks/useWallet";
 import { ModalShell } from "./ModalShell";
+import { fetchRootHistory, type RootHistoryEntry } from "../lib/programs";
 
 // =============================================================================
 // Constants
@@ -344,6 +345,351 @@ function AdminCard({ status, publicKey, signTransaction, onRefresh }: AdminCardP
 }
 
 // =============================================================================
+// Attestation engine pause controls (#371)
+// =============================================================================
+
+type PauseScope = "attestation" | "merkle_updates" | "proof_verification";
+
+interface PauseFlags {
+  pausedAttestation: boolean;
+  pausedMerkleUpdates: boolean;
+  pausedProofVerification: boolean;
+}
+
+const PAUSE_LABELS: Record<PauseScope, string> = {
+  attestation: "Attestation Issuance",
+  merkle_updates: "Merkle Root Updates",
+  proof_verification: "Proof Verification",
+};
+
+const PAUSE_METHODS: Record<PauseScope, { pause: string; unpause: string }> = {
+  attestation: { pause: "pause_attestation", unpause: "unpause_attestation" },
+  merkle_updates: { pause: "pause_merkle_updates", unpause: "unpause_merkle_updates" },
+  proof_verification: { pause: "pause_proof_verification", unpause: "unpause_proof_verification" },
+};
+
+const PAUSE_FLAG_KEYS: Record<PauseScope, keyof PauseFlags> = {
+  attestation: "pausedAttestation",
+  merkle_updates: "pausedMerkleUpdates",
+  proof_verification: "pausedProofVerification",
+};
+
+interface PauseControlsProps {
+  publicKey: string;
+  signTransaction: ((xdr: string) => Promise<string>) | null;
+}
+
+function PauseControls({ publicKey, signTransaction }: PauseControlsProps) {
+  const [flags, setFlags] = useState<PauseFlags | null>(null);
+  const [isLoading, setIsLoading] = useState(false);
+  const [busy, setBusy] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [success, setSuccess] = useState<string | null>(null);
+  const [confirmScope, setConfirmScope] = useState<PauseScope | null>(null);
+  const [confirmAction, setConfirmAction] = useState<"pause" | "unpause">("pause");
+
+  const loadFlags = useCallback(async () => {
+    setIsLoading(true);
+    try {
+      const server = getSorobanServer();
+      const passphrase = getNetworkPassphrase();
+      const raw = await simulateRead(
+        server,
+        passphrase,
+        publicKey,
+        deployedAddresses.attestationEngineV2,
+        "get_config",
+      );
+      if (raw && typeof raw === "object") {
+        const cfg = raw as Record<string, unknown>;
+        setFlags({
+          pausedAttestation: cfg["paused_attestation"] === true,
+          pausedMerkleUpdates: cfg["paused_merkle_updates"] === true,
+          pausedProofVerification: cfg["paused_proof_verification"] === true,
+        });
+      }
+    } catch {
+      /* leave flags null so the section shows nothing */
+    } finally {
+      setIsLoading(false);
+    }
+  }, [publicKey]);
+
+  useEffect(() => {
+    void loadFlags();
+  }, [loadFlags]);
+
+  const invokePause = useCallback(
+    async (scope: PauseScope, action: "pause" | "unpause") => {
+      if (!signTransaction) return;
+      const method = PAUSE_METHODS[scope][action];
+      setError(null);
+      setSuccess(null);
+      setBusy(method);
+      try {
+        const txHash = await invokeContractMethod({
+          sourcePublicKey: publicKey,
+          contractId: deployedAddresses.attestationEngineV2,
+          method,
+          args: [nativeToScVal(publicKey, { type: "address" })],
+          signTransaction,
+        });
+        setSuccess(`Transaction submitted: ${txHash.slice(0, 12)}…`);
+        await loadFlags();
+      } catch (e) {
+        setError(e instanceof Error ? e.message : `${method} failed`);
+      } finally {
+        setBusy(null);
+      }
+    },
+    [publicKey, signTransaction, loadFlags],
+  );
+
+  const handleToggle = (scope: PauseScope, currentlyPaused: boolean) => {
+    setConfirmScope(scope);
+    setConfirmAction(currentlyPaused ? "unpause" : "pause");
+  };
+
+  const confirmToggle = () => {
+    if (!confirmScope) return;
+    setConfirmScope(null);
+    void invokePause(confirmScope, confirmAction);
+  };
+
+  return (
+    <>
+      <div className="rounded-xl border border-ink-700 bg-ink-900/40 px-4 py-3 space-y-3">
+        <div className="flex items-center justify-between gap-3">
+          <div>
+            <h4 className="text-sm font-semibold text-white">Pause Controls</h4>
+            <p className="text-xs text-mist mt-0.5">
+              Toggle operational pause flags on the Attestation Engine V2. Requires admin or governance auth.
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={() => void loadFlags()}
+            disabled={isLoading}
+            className="rounded-lg border border-ink-700 bg-ink-900 px-3 py-1.5 text-xs font-medium text-white hover:bg-ink-800 disabled:opacity-50 transition-colors"
+          >
+            {isLoading ? (
+              <span className="flex items-center gap-1.5">
+                <span className="h-3 w-3 animate-spin rounded-full border border-ink-600 border-t-white" />
+                Loading…
+              </span>
+            ) : "Refresh"}
+          </button>
+        </div>
+
+        {flags === null && !isLoading && (
+          <p className="text-xs text-mist italic">Pause state unavailable — contract may not be initialized.</p>
+        )}
+
+        {flags && (
+          <div className="space-y-2">
+            {(["attestation", "merkle_updates", "proof_verification"] as PauseScope[]).map((scope) => {
+              const paused = flags[PAUSE_FLAG_KEYS[scope]];
+              const method = PAUSE_METHODS[scope][paused ? "unpause" : "pause"];
+              const isBusy = busy === PAUSE_METHODS[scope].pause || busy === PAUSE_METHODS[scope].unpause;
+              return (
+                <div
+                  key={scope}
+                  className="flex items-center justify-between gap-3 rounded-lg border border-ink-700 bg-ink-950/30 px-3 py-2"
+                >
+                  <div className="min-w-0">
+                    <p className="text-xs font-medium text-white">{PAUSE_LABELS[scope]}</p>
+                    <p className={`text-[11px] font-semibold mt-0.5 ${paused ? "text-amber-400" : "text-emerald-400"}`}>
+                      {paused ? "PAUSED" : "ACTIVE"}
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => handleToggle(scope, paused)}
+                    disabled={isBusy || !signTransaction}
+                    className={`shrink-0 rounded-lg border px-3 py-1.5 text-xs font-semibold transition-colors disabled:opacity-40 disabled:cursor-not-allowed ${
+                      paused
+                        ? "border-emerald-500/40 bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500/20"
+                        : "border-amber-500/40 bg-amber-500/10 text-amber-400 hover:bg-amber-500/20"
+                    }`}
+                  >
+                    {isBusy ? (paused ? "Unpausing…" : "Pausing…") : (paused ? "Unpause" : "Pause")}
+                  </button>
+                </div>
+              );
+            })}
+          </div>
+        )}
+
+        {error && (
+          <p className="text-xs text-neutral-400 rounded-lg border border-neutral-500/20 bg-neutral-500/5 px-3 py-2">
+            {error}
+          </p>
+        )}
+        {success && (
+          <p className="text-xs text-neutral-300 rounded-lg border border-neutral-400/20 bg-neutral-400/5 px-3 py-2">
+            {success}
+          </p>
+        )}
+      </div>
+
+      {/* Confirmation modal */}
+      <ModalShell
+        open={confirmScope !== null}
+        title={confirmAction === "pause" ? "Confirm Pause" : "Confirm Unpause"}
+        description={
+          confirmScope
+            ? `${confirmAction === "pause" ? "Pause" : "Unpause"} ${PAUSE_LABELS[confirmScope]} on Attestation Engine V2.`
+            : ""
+        }
+        onClose={() => setConfirmScope(null)}
+        closeOnBackdrop
+        maxWidthClassName="max-w-sm"
+      >
+        <div className="space-y-4">
+          {confirmScope && (
+            <>
+              <p className="text-sm text-mist">
+                {confirmAction === "pause"
+                  ? `This will block all ${PAUSE_LABELS[confirmScope].toLowerCase()} operations. Users will receive a "Paused" error until you unpause.`
+                  : `This will re-enable ${PAUSE_LABELS[confirmScope].toLowerCase()} operations.`}
+              </p>
+              <div className="flex gap-3">
+                <button
+                  type="button"
+                  onClick={() => setConfirmScope(null)}
+                  className="flex-1 rounded-lg border border-ink-700 bg-ink-800 px-4 py-2 text-sm font-medium text-white hover:bg-ink-700 transition-colors"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={confirmToggle}
+                  className={`flex-1 rounded-lg border px-4 py-2 text-sm font-semibold transition-colors ${
+                    confirmAction === "pause"
+                      ? "border-amber-500/60 bg-amber-500/20 text-amber-300 hover:bg-amber-500/30"
+                      : "border-emerald-500/60 bg-emerald-500/20 text-emerald-300 hover:bg-emerald-500/30"
+                  }`}
+                >
+                  {confirmAction === "pause" ? "Confirm Pause" : "Confirm Unpause"}
+                </button>
+              </div>
+            </>
+          )}
+        </div>
+      </ModalShell>
+    </>
+  );
+}
+
+// =============================================================================
+// Reputation root history audit view (#373)
+// =============================================================================
+
+const ROOT_HISTORY_PAGE_SIZE = 10;
+
+function RootHistoryAudit({ publicKey }: { publicKey: string }) {
+  const [entries, setEntries] = useState<RootHistoryEntry[]>([]);
+  const [offset, setOffset] = useState(0);
+  const [isLoading, setIsLoading] = useState(false);
+  const [hasMore, setHasMore] = useState(true);
+
+  const load = useCallback(
+    async (newOffset: number) => {
+      setIsLoading(true);
+      const page = await fetchRootHistory(
+        publicKey,
+        deployedAddresses.reputationVerifier,
+        newOffset,
+        ROOT_HISTORY_PAGE_SIZE,
+      );
+      setEntries(page);
+      setOffset(newOffset);
+      setHasMore(page.length === ROOT_HISTORY_PAGE_SIZE);
+      setIsLoading(false);
+    },
+    [publicKey],
+  );
+
+  useEffect(() => {
+    void load(0);
+  }, [load]);
+
+  return (
+    <div className="rounded-xl border border-ink-700 bg-ink-900/40 px-4 py-3 space-y-3">
+      <div className="flex items-center justify-between gap-3">
+        <div>
+          <h4 className="text-sm font-semibold text-white">Reputation Root History</h4>
+          <p className="text-xs text-mist mt-0.5">Paginated Merkle root history from the Reputation Verifier.</p>
+        </div>
+        <button
+          type="button"
+          onClick={() => void load(offset)}
+          disabled={isLoading}
+          className="rounded-lg border border-ink-700 bg-ink-900 px-3 py-1.5 text-xs font-medium text-white hover:bg-ink-800 disabled:opacity-50 transition-colors"
+        >
+          {isLoading ? (
+            <span className="flex items-center gap-1.5">
+              <span className="h-3 w-3 animate-spin rounded-full border border-ink-600 border-t-white" />
+              Loading…
+            </span>
+          ) : "Refresh"}
+        </button>
+      </div>
+
+      {entries.length === 0 && !isLoading ? (
+        <p className="text-xs text-mist italic py-2">No root history found — no Merkle roots have been committed yet.</p>
+      ) : (
+        <>
+          <div className="overflow-x-auto">
+            <table className="w-full text-xs">
+              <thead>
+                <tr className="border-b border-ink-700 text-left">
+                  <th className="pb-2 pr-4 text-[10px] uppercase tracking-widest text-mist/60 font-semibold w-12">Ledger</th>
+                  <th className="pb-2 pr-4 text-[10px] uppercase tracking-widest text-mist/60 font-semibold">Root Hash</th>
+                  <th className="pb-2 text-[10px] uppercase tracking-widest text-mist/60 font-semibold">Dataset Hash</th>
+                </tr>
+              </thead>
+              <tbody>
+                {entries.map((e, i) => (
+                  <tr key={i} className="border-b border-ink-800/50 last:border-0">
+                    <td className="py-1.5 pr-4 font-mono text-white">{e.ledger.toLocaleString()}</td>
+                    <td className="py-1.5 pr-4 font-mono text-mist/80 truncate max-w-[180px]" title={e.root}>
+                      {e.root.slice(0, 18)}…{e.root.slice(-6)}
+                    </td>
+                    <td className="py-1.5 font-mono text-mist/60 truncate max-w-[180px]" title={e.datasetHash}>
+                      {e.datasetHash.slice(0, 18)}…{e.datasetHash.slice(-6)}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+
+          <div className="flex gap-2 justify-end pt-1">
+            <button
+              type="button"
+              onClick={() => void load(Math.max(0, offset - ROOT_HISTORY_PAGE_SIZE))}
+              disabled={offset === 0 || isLoading}
+              className="rounded-lg border border-ink-700 bg-ink-900 px-3 py-1.5 text-xs font-medium text-white hover:bg-ink-800 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+            >
+              Prev
+            </button>
+            <button
+              type="button"
+              onClick={() => void load(offset + ROOT_HISTORY_PAGE_SIZE)}
+              disabled={!hasMore || isLoading}
+              className="rounded-lg border border-ink-700 bg-ink-900 px-3 py-1.5 text-xs font-medium text-white hover:bg-ink-800 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+            >
+              Next
+            </button>
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
+// =============================================================================
 // Multisig guidance
 // =============================================================================
 
@@ -562,6 +908,8 @@ export function AdminPanel() {
         </div>
       )}
 
+      <PauseControls publicKey={publicKey} signTransaction={signTransaction} />
+
       {isLoading && statuses.length === 0 ? (
         <div className="flex justify-center py-8">
           <span className="h-7 w-7 animate-spin rounded-full border-2 border-ink-600 border-t-white" />
@@ -579,6 +927,8 @@ export function AdminPanel() {
           ))}
         </div>
       )}
+
+      <RootHistoryAudit publicKey={publicKey} />
 
       <MultisigGuide />
     </div>
