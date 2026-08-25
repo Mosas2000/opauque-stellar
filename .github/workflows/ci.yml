@@ -86,6 +86,42 @@ jobs:
       - name: Tests
         run: cargo test --workspace --locked
 
+  # ── Circuits regression suite ───────────────────────────────────────
+  circuits:
+    name: Circuits regression
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Detect circuit changes
+        id: changes
+        uses: dorny/paths-filter@v3
+        with:
+          filters: |
+            circuits:
+              - 'circuits/**'
+
+      - name: Setup Node.js 20
+        if: steps.changes.outputs.circuits == 'true'
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: circuits/package-lock.json
+
+      - name: Install circuit dependencies
+        if: steps.changes.outputs.circuits == 'true'
+        run: npm ci --prefix circuits
+
+      - name: Install root dependencies (for tsx)
+        if: steps.changes.outputs.circuits == 'true'
+        run: npm ci
+
+      - name: Run circuit regression suite
+        if: steps.changes.outputs.circuits == 'true'
+        run: npx tsx circuits/test/regression.ts --witness-only
+
   # ── Scanner WASM: Rust stable + Node 20 ─────────────────────────────
   scanner:
     name: Scanner WASM (Rust stable + Node 20)
@@ -120,8 +156,11 @@ jobs:
       - name: Build scanner WASM
         run: npm run build:scanner
 
-      - name: Verify artifact manifest
+      - name: Verify artifact manifest (scanner)
         run: npx tsx scripts/verify-artifact-manifest.ts --scanner --strict
+
+      - name: Verify embedded VK hash integrity
+        run: npx tsx scripts/verify-artifact-manifest.ts --vk-binding --strict
 
       - name: Byte-stability check (rebuild + compare hash)
         run: npx tsx scripts/check-scanner-byte-stability.ts

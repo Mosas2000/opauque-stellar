@@ -65,6 +65,14 @@
       "repository": "https://github.com/collinsadi/opaque-stellar"
     },
     "circuits": {
+      "v3": {
+        "r1csHash": "2c9b19b2309e4d45d164faa43830dfaa7f8d2dd19182b38c9d554be5da5079d8",
+        "verificationKeyHash": "40ab4d0546ca2c12e51453806fec1d49e1e3f58f0b61b2bfa40570f2d2676556",
+        "witnessWasmHash": "e3ad169255ecabcceb61f5b0b1399cb5f0276614a24f4a03529041390b779f4c",
+        "zkeyHash": "60097d74d4df5707f62316d55322e59d5e15f60d789ae2cb82cfb86f92b1a8c3",
+        "contractVkHash": "652fda2bf28a3b945401a27df8a72d01acb330ee153afbfd8b53d126e388228d",
+        "zkeyHashBinding": "60097d74d4df5707f62316d55322e59d5e15f60d789ae2cb82cfb86f92b1a8c3"
+      },
       "v2": {
         "r1csHash": "c67a500de9f45d87e59eac1b239d76768866c5dc0a1e6bee5adaf258d09c0504",
         "verificationKeyHash": "e79286559a6a9c5c7ceb613909d51fa4344c391fa407ed1d700b74c41867986f",
@@ -87,7 +95,7 @@
     }
   },
   "verification": {
-    "command": "stellar contract build && node scripts/verify-deployment-manifest.mjs --network mainnet --check-wasm --strict",
+    "command": "stellar contract build && npx tsx scripts/verify-artifact-manifest.ts --network mainnet --check-wasm --strict",
     "output": null
   }
 }

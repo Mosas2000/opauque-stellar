@@ -23,7 +23,7 @@
 
 /*
   # Content Security Policy (report-only)
-  Content-Security-Policy-Report-Only: default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' https://fonts.googleapis.com 'unsafe-inline'; font-src 'self' https://fonts.gstatic.com data:; img-src 'self' data: blob:; connect-src 'self' https://horizon.stellar.org https://horizon-testnet.stellar.org https://soroban-rpc.stellar.org https://soroban-testnet.stellar.org wss:; worker-src 'self' blob:; frame-ancestors 'none'; base-uri 'self'; form-action 'self'; object-src 'none'; upgrade-insecure-requests; report-uri /csp-report; report-to csp-endpoint
+  Content-Security-Policy-Report-Only: default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' https://fonts.googleapis.com 'unsafe-inline'; font-src 'self' https://fonts.gstatic.com data:; img-src 'self' data: blob:; connect-src 'self' https://horizon.stellar.org https://horizon-testnet.stellar.org https://soroban-rpc.stellar.org https://soroban-testnet.stellar.org https://g-stelar-relayer.opaque.cash https://errors.opaque.cash wss:; worker-src 'self' blob:; frame-ancestors 'none'; base-uri 'self'; form-action 'self'; object-src 'none'; upgrade-insecure-requests; report-uri /csp-report; report-to csp-endpoint
   Reporting-Endpoints: csp-endpoint="/csp-report"
   X-Content-Type-Options: nosniff
   X-Frame-Options: DENY
