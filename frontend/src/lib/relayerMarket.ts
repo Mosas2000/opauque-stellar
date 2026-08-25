@@ -15,19 +15,15 @@ import {
   verifyBid,
   type JobAdvert,
   type RelayerBid,
-} from "@relayer/messages";
-import { sealBox } from "@relayer/shared/box";
-import {
+  sealBox,
   assertLength,
   bytesToHex,
   hexToBytes,
-} from "@relayer/shared/bytes";
-import {
   encodePoolWithdrawPayload,
   hashPoolWithdrawPayload,
   RELAY_CHAIN_STELLAR,
   type PoolWithdrawPayload,
-} from "@relayer/shared/payload";
+} from "@opaquecash/stellar/relayer-protocol";
 import { bytesToScVal, getSorobanServer } from "./stellar";
 import { RelayerGatewayError } from "./errors";
 import type { WithdrawProof } from "./poolProver";
