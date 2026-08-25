@@ -265,6 +265,17 @@ jobs:
       - name: Tests
         run: npm test --prefix sdk
 
+  # ── Workflow lint: catch undefined npm run scripts ─────────────────────
+  workflow-lint:
+    name: Workflow script lint
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Validate workflow scripts
+        run: ./scripts/validate-workflow-scripts.sh
+
   # ── Supply chain: cargo audit + deny + npm audit ──────────────────────
   supply-chain:
     name: Supply chain audit
