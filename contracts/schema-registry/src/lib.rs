@@ -19,6 +19,10 @@ pub struct SchemaRegistry;
 /// Scanners should reject events with an unrecognised version rather than misparse them.
 const EVENT_VERSION: u32 = 1;
 
+/// TTL for persistent storage entries, matching the privacy-pool convention (#734).
+/// At 5 s/ledger this equals ~120 days (2 073 600 ledgers).
+const PERSISTENT_TTL_LEDGERS: u32 = 2_073_600;
+
 #[contracttype]
 #[derive(Clone)]
 pub struct Schema {
@@ -129,6 +133,16 @@ pub fn derive_schema_id(
     BytesN::from_array(env, &id)
 }
 
+/// Extend the TTL of a persistent storage key to prevent archival (#734).
+fn bump_persistent_ttl<K: soroban_sdk::IntoVal<Env, soroban_sdk::Val>>(
+    env: &Env,
+    key: &K,
+) {
+    env.storage()
+        .persistent()
+        .extend_ttl(key, PERSISTENT_TTL_LEDGERS, PERSISTENT_TTL_LEDGERS);
+}
+
 fn is_schema_active(env: &Env, schema: &Schema) -> bool {
     !schema.deprecated
         && (schema.schema_expiry_ledger == 0
@@ -226,9 +240,12 @@ impl SchemaRegistry {
             deprecated: false,
         };
         env.storage().persistent().set(&skey, &schema);
+        bump_persistent_ttl(&env, &skey);
+        let dk = delegate_key(&schema_id);
         env.storage()
             .persistent()
-            .set(&delegate_key(&schema_id), &Vec::<Address>::new(&env));
+            .set(&dk, &Vec::<Address>::new(&env));
+        bump_persistent_ttl(&env, &dk);
 
         let ids_key = schema_ids_key(&env);
         let mut schema_ids: Vec<BytesN<32>> = env
@@ -238,6 +255,7 @@ impl SchemaRegistry {
             .unwrap_or_else(|| Vec::new(&env));
         schema_ids.push_back(schema_id.clone());
         env.storage().persistent().set(&ids_key, &schema_ids);
+        bump_persistent_ttl(&env, &ids_key);
 
         env.events().publish(
             (Symbol::new(&env, "SchemaRegistered"), EVENT_VERSION),
@@ -272,6 +290,7 @@ impl SchemaRegistry {
         }
         delegates.push_back(delegate.clone());
         env.storage().persistent().set(&dkey, &delegates);
+        bump_persistent_ttl(&env, &dkey);
         env.events().publish(
             (Symbol::new(&env, "DelegateAdded"),),
             (schema_id, authority, delegate),
@@ -306,6 +325,7 @@ impl SchemaRegistry {
             }
         }
         env.storage().persistent().set(&dkey, &updated);
+        bump_persistent_ttl(&env, &dkey);
         env.events().publish(
             (Symbol::new(&env, "DelegateRemoved"),),
             (schema_id, authority, delegate),
@@ -326,6 +346,7 @@ impl SchemaRegistry {
         }
         schema.deprecated = true;
         env.storage().persistent().set(&key, &schema);
+        bump_persistent_ttl(&env, &key);
         Ok(())
     }
 
