@@ -9,23 +9,23 @@
  * GET    /metrics                     - requires Bearer token in PUBLISHER_OPERATOR_TOKENS
  * GET    /health
  *
+ * `POST /v1/reputation/leaves` only queues the commitment into the durable inbox and
+ * acknowledges immediately (202). Publication — the on-chain Soroban round trip — runs on
+ * a background tick loop at PUBLISHER_INTERVAL_MS, independent of any single request, with
+ * retry on the next interval if a tick fails. Submitters confirm inclusion once the
+ * background loop publishes via GET /v1/reputation/root/:leaf or /snapshot/:verifierId.
  * See src/auth.ts for the token issuance flow and src/trusted-proxy.ts for
  * PUBLISHER_TRUSTED_PROXIES, which gates how X-Forwarded-For is honored.
  */
-import { createServer } from "node:http";
 import { readFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { Keypair } from "@stellar/stellar-sdk";
 import { StellarReputationAdapter } from "../src/chains/stellar.ts";
-import { runPublisherTick, createMetrics } from "../src/engine.ts";
-import { buildProof } from "../src/merkle.ts";
-import { computeDatasetHash } from "../src/publish.ts";
-import { FileStore, normalizeCommitment } from "../src/store.ts";
-import { normalizeHex32 } from "../src/bytes.ts";
-import { buildTreeSnapshot, computeSnapshotHash } from "../src/snapshot.ts";
-import { formatPrometheusMetrics } from "../src/metrics.ts";
+import { createMetrics } from "../src/engine.ts";
+import { FileStore } from "../src/store.ts";
 import { createRateLimiterFromEnv } from "../src/rate-limit.ts";
+import { createPublisherHttpServer, runPublisherLoop } from "../src/http.ts";
 import { loadAuthConfigFromEnv, isAuthorizedSubmitter, isAuthorizedOperator } from "../src/auth.ts";
 import { loadTrustedProxiesFromEnv, resolveClientSource } from "../src/trusted-proxy.ts";
 
@@ -34,6 +34,7 @@ const REPO_ROOT = resolve(__dirname, "..", "..");
 const NETWORK_PASSPHRASE = "Test SDF Network ; September 2015";
 
 const MAX_INBOX_SIZE = Number(process.env.PUBLISHER_MAX_INBOX ?? 10_000);
+const MAX_BODY_BYTES = Number(process.env.PUBLISHER_MAX_BODY_BYTES ?? 32 * 1024);
 
 function loadConfig() {
   const manifest = JSON.parse(readFileSync(join(REPO_ROOT, "deployments", "v1", "testnet.json"), "utf8"));
@@ -50,6 +51,8 @@ function loadConfig() {
       : join(__dirname, "..", "data"),
     host: process.env.PUBLISHER_HTTP_HOST ?? "127.0.0.1",
     port: Number(process.env.PUBLISHER_HTTP_PORT ?? 8790),
+    corsOrigin: process.env.PUBLISHER_CORS_ORIGIN ?? "*",
+    intervalMs: Number(process.env.PUBLISHER_INTERVAL_MS ?? 15000),
     corsOrigin: process.env.PUBLISHER_CORS_ORIGIN ?? "",
   };
 }
@@ -108,6 +111,24 @@ async function main() {
   const authCfg = loadAuthConfigFromEnv();
   const trustedProxies = loadTrustedProxiesFromEnv();
 
+  runPublisherLoop({
+    verifierId: cfg.verifierId,
+    adapter,
+    store,
+    metrics,
+    dataDir: cfg.dataDir,
+    intervalMs: cfg.intervalMs,
+    onTick: (res) => {
+      if (!res.published) return;
+      console.log(`[${new Date().toISOString()}] PUBLISHED root=${res.localRoot?.slice(0, 14)}... tx=${res.txHash}`);
+    },
+    onError: (err) => {
+      console.error(`background publish tick failed (will retry): ${err?.message ?? err}`);
+    },
+  }).catch((err) => {
+    console.error(`publish loop crashed: ${err?.message ?? err}`);
+    process.exit(1);
+  });
   function extractSource(req): string {
     return resolveClientSource(req, trustedProxies);
   }
@@ -231,15 +252,19 @@ async function main() {
         return;
       }
 
-      send(res, 404, { ok: false, error: "not found" }, cfg.corsOrigin);
-    } catch (err) {
-      send(res, 500, { ok: false, error: err?.message ?? String(err) }, cfg.corsOrigin);
-    }
+  const server = createPublisherHttpServer({
+    verifierId: cfg.verifierId,
+    store,
+    metrics,
+    rateLimiter,
+    dataDir: cfg.dataDir,
+    corsOrigin: cfg.corsOrigin,
+    maxBodyBytes: MAX_BODY_BYTES,
   });
 
   server.listen(cfg.port, cfg.host, () => {
     console.log(`Reputation publisher API listening on http://${cfg.host}:${cfg.port}`);
-    console.log(`verifier=${cfg.verifierId} maxInbox=${MAX_INBOX_SIZE}`);
+    console.log(`verifier=${cfg.verifierId} maxInbox=${MAX_INBOX_SIZE} publishIntervalMs=${cfg.intervalMs}`);
   });
 }
 
@@ -247,3 +272,4 @@ main().catch((err) => {
   console.error(err?.message ?? err);
   process.exit(1);
 });
+
