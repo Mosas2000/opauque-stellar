@@ -1,5 +1,6 @@
 import type { RelayerEngine } from "./engine.ts";
 import type { GossipTransport } from "./gossip.ts";
+import type { HubStore } from "./store.ts";
 import {
   validateAdvert,
   validateBid,
@@ -77,6 +78,7 @@ export class RelayerHub {
     /** Called with only the job identifier — never the payload, recipient, or proof data. */
     private readonly onFailover: (jobId: string) => void = (jobId) =>
       console.warn("[relayer-hub] reassigning stalled job", jobId),
+    private readonly store?: HubStore,
   ) {
     this.startedAt = Date.now();
   }
@@ -84,6 +86,7 @@ export class RelayerHub {
   async start(): Promise<void> {
     if (this.started) return;
     this.started = true;
+    await this.hydrateFromStore();
     await this.transport.subscribe(async (message) => {
       try {
         const valid = validateRelayerMessage(message);
@@ -92,16 +95,20 @@ export class RelayerHub {
         } else if (valid.t === "bid") {
           this.rememberBid(valid);
           this.stats.bidsSeen += 1;
+          await this.persistState();
         } else if (valid.t === "payload") {
           this.rememberAssignment(valid);
           this.stats.payloadsSeen += 1;
+          await this.persistState();
         } else if (valid.t === "outcome") {
           this.recordOutcome(valid.operator, valid.result);
           this.assignments.delete(valid.jobId.toLowerCase());
           this.stats.outcomesSeen += 1;
+          await this.persistState();
         } else if (valid.t === "heartbeat") {
           this.recordHeartbeat(valid.operator);
           this.stats.heartbeatsSeen += 1;
+          await this.persistState();
         }
         await Promise.all(Array.from(this.subscribers, (handler) => handler(valid)));
       } catch (err) {
@@ -154,6 +161,7 @@ export class RelayerHub {
       this.bids.set(key, list);
     }
     this.knownOperators.add(bid.operator);
+    void this.persistState();
   }
 
   /** Record a resolved job for an operator. `at` defaults to now; exposed for tests. */
@@ -162,6 +170,7 @@ export class RelayerHub {
     const list = this.outcomes.get(operator) ?? [];
     list.push({ result, at });
     this.outcomes.set(operator, list);
+    void this.persistState();
   }
 
   /** A payload delivery is the hub's only signal for which operator now owns a job. */
@@ -174,6 +183,7 @@ export class RelayerHub {
   recordHeartbeat(operator: string, at: number = Date.now()): void {
     this.knownOperators.add(operator);
     this.lastHeartbeatAt.set(operator, at);
+    void this.persistState();
   }
 
   /** A node that has never sent a heartbeat is not assumed healthy. */
@@ -263,6 +273,51 @@ export class RelayerHub {
       uptime: Date.now() - this.startedAt,
       stats: { ...this.stats },
     };
+  }
+
+  private async persistState(): Promise<void> {
+    if (!this.store) return;
+    try {
+      await this.store.save({
+        bids: Array.from(this.bids.entries()),
+        outcomes: Array.from(this.outcomes.entries()),
+        knownOperators: Array.from(this.knownOperators),
+        lastHeartbeatAt: Array.from(this.lastHeartbeatAt.entries()),
+        assignments: Array.from(this.assignments.entries()),
+        stats: { ...this.stats },
+      });
+    } catch (err) {
+      this.stats.lastError = err instanceof Error ? err.message : String(err);
+      console.error("[relayer-hub] failed to persist state:", err);
+    }
+  }
+
+  private async hydrateFromStore(): Promise<void> {
+    if (!this.store) return;
+    try {
+      const saved = await this.store.load();
+      if (!saved) return;
+      for (const [k, v] of saved.bids) this.bids.set(k, v);
+      for (const [k, v] of saved.outcomes) this.outcomes.set(k, v);
+      for (const op of saved.knownOperators) this.knownOperators.add(op);
+      for (const [k, v] of saved.lastHeartbeatAt) this.lastHeartbeatAt.set(k, v);
+      for (const [k, v] of saved.assignments) this.assignments.set(k, v);
+      if (saved.stats) {
+        this.stats.advertsSeen = saved.stats.advertsSeen;
+        this.stats.bidsSeen = saved.stats.bidsSeen;
+        this.stats.payloadsSeen = saved.stats.payloadsSeen;
+        this.stats.outcomesSeen = saved.stats.outcomesSeen;
+        this.stats.heartbeatsSeen = saved.stats.heartbeatsSeen;
+      }
+      console.log("[relayer-hub] restored state from store:", {
+        bids: this.bids.size,
+        operators: this.knownOperators.size,
+        assignments: this.assignments.size,
+      });
+    } catch (err) {
+      this.stats.lastError = err instanceof Error ? err.message : String(err);
+      console.error("[relayer-hub] failed to hydrate from store:", err);
+    }
   }
 }
 
