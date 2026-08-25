@@ -44,6 +44,7 @@ import { ClaimModal } from "./ClaimModal";
 import { useProtocolLog } from "../context/ProtocolLogContext";
 import { useTxHistoryStore } from "../store/txHistoryStore";
 import { useGhostAddressStore } from "../store/ghostAddressStore";
+import { GhostPersistenceWarning } from "./GhostPersistenceWarning";
 import { useWatchlist, useWatchlistStore } from "../hooks/useWatchlist";
 import { useVaultStore } from "../store/vaultStore";
 import { useToast } from "../context/ToastContext";
@@ -1037,6 +1038,7 @@ export function PrivateBalanceView() {
   return (
     <div className="w-full flex flex-col">
       <div className="mb-8">
+        <GhostPersistenceWarning />
         <div className="flex flex-wrap items-end justify-between gap-3">
           <div>
             <h2 className="font-display text-2xl font-bold text-white">
