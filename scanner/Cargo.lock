@@ -684,6 +684,7 @@ dependencies = [
  "sha3",
  "wasm-bindgen",
  "web-sys",
+ "zeroize",
 ]
 
 [[package]]
