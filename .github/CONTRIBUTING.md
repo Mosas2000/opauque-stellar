@@ -355,7 +355,13 @@ npm run deploy:testnet -- --dry-run # preview (no broadcast)
 
 - **Mainnet requires audit signoff.** `npm run deploy:mainnet` runs the
   `verify-security-audit` gate. Do not bypass it with `--force` for real deploys.
-- Always commit the updated manifest, then verify:
+- After deploying, regenerate the SDK address constants so the published SDK
+  points at the new contract IDs:
+  ```bash
+  npm run generate:addresses
+  ```
+- Commit both the updated manifest and the regenerated `sdk/src/config/addresses.ts`.
+- Verify the manifest:
   ```bash
   npx tsx scripts/verify-deployment-manifest.ts --network <net> --strict --check-wasm
   ```
@@ -378,6 +384,8 @@ npm run deploy:testnet -- --dry-run # preview (no broadcast)
       justification).
 - [ ] Manifests and artifact hashes updated if contracts, scanner, or circuits
       changed.
+- [ ] `npm run generate:addresses` run and `sdk/src/config/addresses.ts` committed
+      after any deploy that changes contract IDs.
 - [ ] Event ABI or storage layout changes are matched by a scanner update and a
       version bump.
 - [ ] Conventional-commit messages, and a PR description that explains the "why".

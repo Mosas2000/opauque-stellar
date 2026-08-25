@@ -1,4 +1,5 @@
 import type { RelayerChainAdapter } from "./engine.ts";
+import type { LedgerStore } from "./store.ts";
 
 // ---------------------------------------------------------------------------
 // Job ledger
@@ -21,9 +22,13 @@ export type JobLedgerEntry = {
  */
 export class JobLedger {
   private entries = new Map<string, JobLedgerEntry>();
+  private loaded = false;
+
+  constructor(private readonly store?: LedgerStore) {}
 
   record(entry: JobLedgerEntry): void {
     this.entries.set(entry.jobId.toLowerCase(), entry);
+    void this.persist();
   }
 
   all(): JobLedgerEntry[] {
@@ -36,6 +41,32 @@ export class JobLedger {
 
   size(): number {
     return this.entries.size;
+  }
+
+  async hydrate(): Promise<void> {
+    if (this.loaded || !this.store) return;
+    this.loaded = true;
+    try {
+      const saved = await this.store.load();
+      if (!saved) return;
+      for (const entry of saved) {
+        this.entries.set(entry.jobId.toLowerCase(), entry);
+      }
+    } catch (err) {
+      console.error("[job-ledger] failed to hydrate from store:", err);
+    }
+  }
+
+  remove(jobId: string): void {
+    this.entries.delete(jobId.toLowerCase());
+    void this.persist();
+  }
+
+  private persist(): void {
+    if (!this.store) return;
+    this.store.save(this.all()).catch((err) => {
+      console.error("[job-ledger] failed to persist:", err);
+    });
   }
 }
 
@@ -216,5 +247,25 @@ export class PayoutReconciler {
 
   getRunCount(): number {
     return this.runCount;
+  }
+
+  /**
+   * Verify restored ledger entries against chain on boot. Removes entries
+   * whose jobs are not found on-chain (stale after reorg or contract
+   * migration) and surfaces fee/status discrepancies. Returns a
+   * reconciliation report summarising the check.
+   */
+  async verifyOnBoot(): Promise<ReconciliationReport> {
+    await this.ledger.hydrate();
+    const report = await this.reconcile();
+    for (const d of report.discrepancies) {
+      if (d.outcome === "not_found") {
+        this.ledger.remove(d.jobId);
+        console.warn(`[reconciler] removed stale ledger entry: ${d.jobId}`);
+      } else if (d.outcome === "discrepancy") {
+        console.warn(`[reconciler] boot discrepancy for ${d.jobId}: ${d.detail}`);
+      }
+    }
+    return report;
   }
 }

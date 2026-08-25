@@ -65,11 +65,10 @@ export const TESTNET_DEPLOYMENT: NetworkDeployment = {
     reputationVerifier: "CAFVXL6A5N4FVQZ733GLUX27ETPLLINLE75ZABNLFYEKPIYZORFCBSVR",
     schemaRegistry: "CA5XA2T2DAOZH7QG5RG2372KGDHMCEVQJMBGT7AJMNHRI6C4ZIM37QCP",
     attestationEngineV2: "CB6KOWOQBFQDX5NNGUJGECHXUF3LHUE77FYD2C6JSWMHYWGCJOUTSDPX",
-    poolVerifier: "CD2SQALXCZDRTWMFGUBRIP2GFH6TJ3GQ3S6YU4R4C2IIEYC43MLUMS7Q",
-    privacyPool: "CAYXZTWB26VPIO6UTKFM22UY6XIMO72IRCFKAU2C6NSMQ4JSJ6VJ7BLE",
-    relayerRegistry: "CCQJFUMMSYOOEJN65E6OH2XSJUESSHRHELFTCSOMIREASXPIJE4AIAMO",
+    poolVerifier: "CBWHOATL5TQLQNIOJ3EADOQ55SH7C3A5OO5BJNJZICBMXXH5NMMDIDFC",
+    privacyPool: "CCXNSBVFTVCVUGBZG2RRT2OVVY5ERXGTNYE5DCALAEAROD2IEGJZ7J3J",
+    relayerRegistry: "CBTHQFGGDJMEML267U5EGQPYFLARO6TO4QYSK6CVKXWY2TR4DJ7GQ3ND",
   },
-  /** All contracts deployed at interface version 1 for the initial deployment. */
   contractVersions: {
     stealthRegistry: 1,
     stealthAnnouncer: 1,
@@ -88,10 +87,10 @@ export const TESTNET_DEPLOYMENT: NetworkDeployment = {
   relayer: {
     minimumStake: 1_000_000n,
     unstakeCooldownLedgers: 720,
-    maxDeadlineLedgers: 17_280,
+    maxDeadlineLedgers: 17280,
     gatewayUrls: ["https://g-stelar-relayer.opaque.cash"],
   },
-  deploymentLedger: 3_101_000,
+  deploymentLedger: 3_264_903,
 };
 
 /** Known deployments by network. Testnet is the only live deployment today. */

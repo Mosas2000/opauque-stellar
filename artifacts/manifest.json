@@ -8,12 +8,7 @@
     "files": {
       "cryptography_bg.wasm": {
         "path": "frontend/public/pkg/cryptography_bg.wasm",
-        "sha256": "31840c413d0440937c5e56ecbb4cb8695bbc4c198d6418c26e99a3dda2a44620",
-        "sha256Alternates": [
-          "caaf3db5334903ba1f6d026b0d212c0a6c0ed9932e4d0962d3aad5890e5c1a94",
-          "1aac83f8e0f3b4034b6832eff45feff0946c483f5bfcd0cc6465e53d1c4a9bed",
-          "90f73426ae423eefcfc84047cbcf329fa4cd518b21e8590601d8001a3e410314"
-        ]
+        "sha256": "31840c413d0440937c5e56ecbb4cb8695bbc4c198d6418c26e99a3dda2a44620"
       },
       "cryptography.js": {
         "path": "frontend/public/pkg/cryptography.js",

@@ -45,7 +45,6 @@ run("Verify scanner runtime artifacts", "tsx", [
   "scripts/verify-artifact-manifest.ts",
   "--scanner",
   "--strict",
-  "--allow-scanner-wasm-variant",
 ]);
 
 // Production proof flows need these public runtime artifacts. Fail before

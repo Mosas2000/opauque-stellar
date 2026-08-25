@@ -46,6 +46,20 @@ export class RpcError extends OpaqueError {
   }
 }
 
+/** A relayer gateway HTTP request failed (network, timeout, HTTP status, or abort). */
+export class GatewayError extends OpaqueError {
+  readonly httpStatus?: number;
+  readonly gatewayUrl?: string;
+  constructor(
+    message: string,
+    options?: { httpStatus?: number; gatewayUrl?: string; cause?: unknown },
+  ) {
+    super(message, "GATEWAY", options);
+    this.httpStatus = options?.httpStatus;
+    this.gatewayUrl = options?.gatewayUrl;
+  }
+}
+
 /** A transaction failed during pre-flight simulation. */
 export class SimulationError extends OpaqueError {
   readonly diagnostics?: string;

@@ -94,7 +94,7 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Install Rust stable
+      - name: Install Rust stable (pinned via scanner/rust-toolchain.toml)
         uses: dtolnay/rust-toolchain@stable
         with:
           targets: wasm32-unknown-unknown
@@ -123,6 +123,8 @@ jobs:
       - name: Verify artifact manifest
         run: npx tsx scripts/verify-artifact-manifest.ts --scanner --strict
 
+      - name: Byte-stability check (rebuild + compare hash)
+        run: npx tsx scripts/check-scanner-byte-stability.ts
   # ── Scanner crate: Rust stable (fmt + clippy + tests) ────────────────
   scanner-crate:
     name: Scanner crate (Rust stable)
@@ -249,6 +251,12 @@ jobs:
 
       - name: Install SDK dependencies
         run: npm ci --prefix sdk
+
+      - name: Install root dependencies
+        run: npm ci
+
+      - name: SDK address drift check
+        run: npx tsx scripts/generate-sdk-addresses.ts --check
 
       - name: Lint
         run: npm run lint --prefix sdk
