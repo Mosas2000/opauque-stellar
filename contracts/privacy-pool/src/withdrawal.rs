@@ -1,7 +1,7 @@
 // Issue #584: Minimum withdrawal amount enforcement
 // Prevents dust-sized withdrawals from bloating nullifier set
 
-use soroban_sdk::{contract, contractimpl, contracttype, symbol_short, Address, Env, String, Symbol};
+use soroban_sdk::{contracttype, symbol_short, Address, Env};
 
 #[contracttype]
 #[derive(Clone, Debug)]
@@ -17,7 +17,7 @@ pub enum DataKey {
     WithdrawalAdmin,
 }
 
-const DEFAULT_MINIMUM_WITHDRAWAL: u128 = 1_000_000; // 0.01 of smallest unit
+pub const DEFAULT_MINIMUM_WITHDRAWAL: u128 = 1_000_000; // 0.01 of smallest unit
 
 pub fn initialize_withdrawal_config(env: &Env, admin: Address, minimum_amount: u128) {
     let config = WithdrawalConfig {
@@ -35,7 +35,7 @@ pub fn initialize_withdrawal_config(env: &Env, admin: Address, minimum_amount: u
         .set(&DataKey::WithdrawalAdmin, &admin);
 
     env.events().publish(
-        (symbol_short!("pool"), symbol_short!("withdraw_config")),
+        (symbol_short!("pool"), symbol_short!("wd_cfg")),
         (minimum_amount,),
     );
 }
@@ -52,37 +52,23 @@ pub fn get_withdrawal_config(env: &Env) -> WithdrawalConfig {
     env.storage()
         .instance()
         .get::<_, WithdrawalConfig>(&DataKey::WithdrawalConfig)
-        .unwrap_or(WithdrawalConfig {
-            minimum_amount: DEFAULT_MINIMUM_WITHDRAWAL,
-            updated_at: 0,
-            updated_by: Address::generate(env),
-        })
+        .expect("withdrawal config not initialized")
 }
 
-pub fn update_minimum_withdrawal_amount(
-    env: &Env,
-    caller: Address,
-    new_minimum: u128,
-) -> Result<(), String> {
-    // Verify caller is admin
-    let admin = env.storage()
+pub fn update_minimum_withdrawal_amount(env: &Env, caller: Address, new_minimum: u128) {
+    let admin = env
+        .storage()
         .instance()
         .get::<_, Address>(&DataKey::WithdrawalAdmin)
-        .ok_or("Admin not configured")?;
+        .expect("admin not configured");
 
-    if caller != admin {
-        return Err("Only admin can update withdrawal config".into());
-    }
+    assert!(caller == admin, "only admin can update withdrawal config");
+    assert!(new_minimum > 0, "minimum withdrawal must be positive");
+    assert!(
+        new_minimum <= 1_000_000_000_000_000,
+        "minimum withdrawal exceeds maximum allowed"
+    );
 
-    // Validate minimum is reasonable (non-zero, less than 1 billion)
-    if new_minimum == 0 {
-        return Err("Minimum withdrawal must be positive".into());
-    }
-    if new_minimum > 1_000_000_000_000_000 {
-        return Err("Minimum withdrawal exceeds maximum allowed".into());
-    }
-
-    // Update config
     let config = WithdrawalConfig {
         minimum_amount: new_minimum,
         updated_at: env.ledger().timestamp(),
@@ -93,24 +79,15 @@ pub fn update_minimum_withdrawal_amount(
         .instance()
         .set(&DataKey::WithdrawalConfig, &config);
 
-    // Emit event
     env.events().publish(
-        (symbol_short!("pool"), symbol_short!("min_updated")),
+        (symbol_short!("pool"), symbol_short!("min_upd")),
         (new_minimum, &caller),
     );
-
-    Ok(())
 }
 
-pub fn validate_withdrawal_amount(env: &Env, amount: u128) -> Result<(), String> {
+pub fn validate_withdrawal_amount(env: &Env, amount: u128) -> bool {
     let minimum = get_minimum_withdrawal_amount(env);
-    if amount < minimum {
-        return Err(format!(
-            "Withdrawal amount {} below minimum {}",
-            amount, minimum
-        ));
-    }
-    Ok(())
+    amount >= minimum
 }
 
 #[cfg(test)]
@@ -119,19 +96,13 @@ mod tests {
 
     #[test]
     fn test_default_minimum() {
-        // In real tests, would use Soroban test environment
         assert_eq!(DEFAULT_MINIMUM_WITHDRAWAL, 1_000_000);
     }
 
     #[test]
     fn test_minimum_validation() {
-        // Test validation logic
         let minimum = 1_000_000;
-
-        // Should reject lower amounts
         assert!(minimum > 500_000);
-
-        // Should accept higher amounts
         assert!(2_000_000 > minimum);
     }
 }
