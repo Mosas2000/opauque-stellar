@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from "react";
+import { debugLog } from "../lib/debugLog";
 import { StrKey } from "@stellar/stellar-sdk";
 import {
   bytesToHex,
@@ -216,7 +217,7 @@ async function processRawLogsToFoundTxs(
     for (const m of workerMatches) {
       const row = byId.get(m.id);
       if (row) {
-        console.log("🎯 [Opaque] Match found for address:", row.stealthAddress);
+        debugLog("🎯 [Opaque] Match found for address:", row.stealthAddress);
         matched.push(row);
       }
     }
@@ -249,7 +250,7 @@ async function processRawLogsToFoundTxs(
         }
         if (!isOurs) continue;
 
-        console.log("🎯 [Opaque] Match found for address:", row.stealthAddress);
+        debugLog("🎯 [Opaque] Match found for address:", row.stealthAddress);
         matched.push(row);
       } catch (err) {
         console.warn("🔑 [Opaque] Skipping malformed log:", row.id, err);
@@ -317,7 +318,7 @@ async function processRawLogsToFoundTxs(
   );
 
   const totalBalance = found.reduce((sum, tx) => sum + tx.balance, 0n);
-  console.log("📥 [Opaque] PrivateBalance: fetchFoundTxs done", {
+  debugLog("📥 [Opaque] PrivateBalance: fetchFoundTxs done", {
     count: found.length,
     totalBalanceStroops: totalBalance.toString(),
     totalBalanceXlm: formatXlm(totalBalance),
@@ -391,7 +392,7 @@ function scanForAttestations(
     }
 
     if (parsed.data.length > 0) {
-      console.log(
+      debugLog(
         `📥 [Opaque] Discovered ${parsed.data.length} attestation trait(s)`,
       );
     }

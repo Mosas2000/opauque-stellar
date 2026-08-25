@@ -18,12 +18,13 @@ import { LandingPage } from "./components/LandingPage.tsx";
 import { BrandingPage } from "./components/BrandingPage.tsx";
 import { StellarWalletProviders } from "./context/StellarWalletProviders.tsx";
 import { MainnetSecurityLayer } from "./components/security/MainnetSecurityLayer.tsx";
+import { debugLog } from "./lib/debugLog";
 import { logExpectedArtifactHashes } from "./lib/artifactHashes.ts";
 import { THREAT_MODEL_ROUTE } from "./lib/privacyThreatModel.ts";
 import { installGlobalErrorCapture } from "./lib/errorReporting.ts";
 import { initCspReportCollector } from "./lib/cspReport.ts";
 
-console.log("[Opaque] App bootstrapping (Stellar)...");
+debugLog("[Opaque] App bootstrapping (Stellar)");
 logExpectedArtifactHashes();
 
 const network = getConfiguredNetwork();
@@ -39,9 +40,9 @@ installGlobalErrorCapture({
 initCspReportCollector();
 
 if (!isClusterSupported(network)) {
-  console.warn("[Opaque] Unsupported network:", { network: getNetworkEnvValue() });
+  debugLog("[Opaque] Unsupported network: %s", getNetworkEnvValue());
 } else {
-  console.log("[Opaque] Network OK", { network });
+  debugLog("[Opaque] Network OK: %s", network);
 }
 
 function LandingRoute() {

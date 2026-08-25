@@ -1,5 +1,6 @@
 import React, { useState } from "react";
 import { RecoveryManager, type BackupFile } from "../../services/recoveryManager";
+import { debugLog } from "../lib/debugLog";
 
 export const BackupImport: React.FC = () => {
   const [file, setFile] = useState<File | null>(null);
@@ -24,9 +25,9 @@ export const BackupImport: React.FC = () => {
         throw new Error("Invalid backup file format.");
       }
 
-      const payload = await RecoveryManager.importBackup(password, backupFile);
-      // In a real app, populate stores with the imported payload here.
-      console.log("Restored payload:", payload);
+const payload = await RecoveryManager.importBackup(password, backupFile);
+// In a real app, populate stores with the imported payload here.
+      debugLog("Backup imported successfully");
       setSuccess(true);
       setFile(null);
       setPassword("");
@@ -35,6 +36,7 @@ export const BackupImport: React.FC = () => {
     } finally {
       setLoading(false);
     }
+    debugLog("Backup import completed");
   };
 
   return (

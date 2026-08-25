@@ -5,6 +5,7 @@ import { TestnetBanner } from "./TestnetBanner";
 import { NetworkStatusBanner } from "./NetworkStatusBanner";
 import { isTabNavVisible } from "../lib/tabAccess";
 import { useTranslation } from "../lib/i18n";
+import { debugLog } from "../lib/debugLog";
 
 export type Tab =
   | "dashboard"
@@ -132,11 +133,15 @@ function DesktopNav({
                 className="flex items-center gap-2 rounded-xl border border-white/20 bg-ink-900/60 px-2.5 py-1.5 transition-colors hover:border-white/40 cursor-pointer"
                 data-tour="meta"
               >
-                <img
-                  src={`https://robohash.org/${address}`}
-                  alt=""
-                  className="h-7 w-7 rounded-full bg-ink-800"
-                />
+<img
+                src={`data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='20' height='20' viewBox='0 0 20 20'%3E%3Crect width='20' height='20' fill='%23${address
+                  .split('')
+                  .reduce((a, c) => a + c.charCodeAt(0), 0)
+                  .toString(16)
+                  .padStart(6, '0')}%' /%3E%3C/svg%3E`}
+                alt=""
+                className="h-7 w-7 rounded-full bg-ink-800"
+              />
               </div>
               {dropdownOpen && (
                 <div className="absolute right-0 top-full mt-1.5 w-52 rounded-xl border border-ink-700 bg-ink-900/95 py-1.5 shadow-2xl backdrop-blur-lg z-30">

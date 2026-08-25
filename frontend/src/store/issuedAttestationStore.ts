@@ -5,10 +5,12 @@
  * time. Received attestations are discovered separately by the scanner.
  *
  * These records hold only public attestation metadata (no secrets).
+ * Data is encrypted at rest using passphrase-derived AES-256-GCM.
  */
 
 import { create } from "zustand";
-import { persist, createJSONStorage } from "zustand/middleware";
+import { createEncryptedStorage } from "../lib/encryptedStorage";
+import { getEncryptionPassphrase } from "../lib/getEncryptionPassphrase";
 
 export type IssuedAttestation = {
   cluster: string;
@@ -36,6 +38,13 @@ type IssuedAttestationState = {
   markRevoked: (uidHex: string, cluster: string) => void;
   getForCluster: (cluster: string) => IssuedAttestation[];
 };
+
+const ISSUED_ATTESTATION_STORAGE_KEY = "opaque-issued-attestations-v1";
+
+const issuedAttestationStorage = createEncryptedStorage<IssuedAttestationState>(
+  ISSUED_ATTESTATION_STORAGE_KEY,
+  getEncryptionPassphrase,
+);
 
 export const useIssuedAttestationStore = create<IssuedAttestationState>()(
   persist(
@@ -78,8 +87,11 @@ export const useIssuedAttestationStore = create<IssuedAttestationState>()(
         get().issued.filter((x) => x.cluster === cluster),
     }),
     {
-      name: "opaque-issued-attestations-v1",
-      storage: createJSONStorage(() => localStorage),
+      name: ISSUED_ATTESTATION_STORAGE_KEY,
+      storage: issuedAttestationStorage,
+      onRehydrateStorage: () => (_state, _err) => {
+        /* hydrated */
+      },
     },
   ),
 );
