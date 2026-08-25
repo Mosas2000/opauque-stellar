@@ -24,6 +24,7 @@ import { runPoolTick } from "../src/engine.ts";
 import { PublicationMonitor } from "../src/monitor.ts";
 import { ReorgGuard } from "../src/reorg-guard.ts";
 import { recordTickFailure, recordTickSuccess } from "../src/metrics.ts";
+import { numberEnv } from "../src/env.ts";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = resolve(__dirname, "..", "..");
@@ -49,9 +50,9 @@ export function loadConfig() {
     authority: Keypair.fromSecret(secret),
     rpcUrl: process.env.STELLAR_RPC_URL ?? manifest.rpcUrl ?? "https://soroban-testnet.stellar.org",
     deploymentLedger: manifest.deploymentLedger ?? undefined,
-    intervalMs: Number(process.env.ASP_INTERVAL_MS ?? 15000),
-    confirmations: Number(process.env.ASP_CONFIRMATIONS ?? 1),
-    maxRootAgeMs: Number(process.env.ASP_MAX_ROOT_AGE_MS ?? DEFAULT_MAX_ROOT_AGE_MS),
+    intervalMs: numberEnv("ASP_INTERVAL_MS", 15000, { min: 1 }),
+    confirmations: numberEnv("ASP_CONFIRMATIONS", 1, { min: 0, integer: true }),
+    maxRootAgeMs: numberEnv("ASP_MAX_ROOT_AGE_MS", DEFAULT_MAX_ROOT_AGE_MS, { min: 1 }),
     dataDir: join(__dirname, "..", "data"),
   };
 }

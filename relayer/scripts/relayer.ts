@@ -10,6 +10,7 @@ import { RelayerHub, attachRelayerEngineToGossip } from "../src/hub.ts";
 import { StellarRelayerChain } from "../src/chains/stellar.ts";
 import { generateX25519Keypair } from "../src/shared/box.ts";
 import { bytesToHex, hexToBytes } from "../src/shared/bytes.ts";
+import { numberEnv } from "../src/env.ts";
 import testnetManifest from "../../deployments/v1/testnet.json" with { type: "json" };
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -56,7 +57,7 @@ const rpcUrl = process.env.STELLAR_RPC_URL?.trim() || manifest.rpcUrl;
 const endpoint = process.env.RELAYER_ENDPOINT?.trim() || "http://127.0.0.1:8787";
 const minFee = BigInt(process.env.RELAYER_MIN_FEE ?? "100000");
 const endpointPort = new URL(endpoint).port;
-const port = Number(process.env.RELAYER_PORT ?? (endpointPort || 8787));
+const port = numberEnv("RELAYER_PORT", Number(endpointPort || 8787), { min: 1, max: 65535, integer: true });
 
 const chain = new StellarRelayerChain({
   rpcUrl,

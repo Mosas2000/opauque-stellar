@@ -7,6 +7,8 @@ import { buildTreeSnapshot, computeSnapshotHash } from "./snapshot.ts";
 import { formatPrometheusMetrics } from "./metrics.ts";
 import { runPublisherTick } from "./engine.ts";
 import { PayloadTooLargeError, readJsonLimited } from "./body.ts";
+import { isAuthorizedSubmitter, isAuthorizedOperator, type AuthConfig } from "./auth.ts";
+import { resolveClientSource } from "./trusted-proxy.ts";
 import type { RateLimiter } from "./rate-limit.ts";
 import type { Store } from "./store.ts";
 import type { ChainAdapter, PublisherMetrics } from "./types.ts";
@@ -22,6 +24,20 @@ export interface PublisherHttpDeps {
   corsOrigin?: string;
   /** Streaming body-size cap enforced before the payload is buffered. Default 32 KiB. */
   maxBodyBytes?: number;
+  /**
+   * Bearer-token config gating POST /v1/reputation/leaves (submitTokens) and
+   * /v1/reputation/quarantine + /metrics (operatorTokens). Omitted means no
+   * auth is enforced on any route — only safe for local/test use;
+   * scripts/server.ts always passes this via loadAuthConfigFromEnv() in
+   * production.
+   */
+  authConfig?: AuthConfig;
+  /**
+   * Peers allowed to set X-Forwarded-For for rate-limit source resolution
+   * (see trusted-proxy.ts). Omitted means the header is never trusted and
+   * the raw socket address is used.
+   */
+  trustedProxies?: Set<string>;
 }
 
 function send(res: ServerResponse, status: number, body: unknown, corsOrigin: string, contentType = "application/json") {
@@ -53,12 +69,6 @@ async function rootResponse(store: Store, verifierId: string, leaf: string) {
   };
 }
 
-function extractSource(req: IncomingMessage): string {
-  const forwarded = req.headers["x-forwarded-for"];
-  if (typeof forwarded === "string") return forwarded.split(",")[0].trim();
-  return req.socket.remoteAddress ?? "unknown";
-}
-
 /**
  * Builds the publisher HTTP API. `POST /v1/reputation/leaves` only queues the commitment
  * into the durable inbox and returns immediately — publication (the on-chain Soroban round
@@ -68,7 +78,8 @@ function extractSource(req: IncomingMessage): string {
 export function createPublisherHttpServer(deps: PublisherHttpDeps) {
   const corsOrigin = deps.corsOrigin ?? "*";
   const maxBodyBytes = deps.maxBodyBytes ?? DEFAULT_MAX_BODY_BYTES;
-  const { verifierId, store, metrics, rateLimiter } = deps;
+  const trustedProxies = deps.trustedProxies ?? new Set<string>();
+  const { verifierId, store, metrics, rateLimiter, authConfig } = deps;
 
   return createServer(async (req, res) => {
     try {
@@ -80,7 +91,11 @@ export function createPublisherHttpServer(deps: PublisherHttpDeps) {
       const url = new URL(req.url ?? "/", `http://${req.headers.host ?? "localhost"}`);
 
       if (req.method === "POST" && url.pathname === "/v1/reputation/leaves") {
-        const source = extractSource(req);
+        if (authConfig && !isAuthorizedSubmitter(req, authConfig)) {
+          send(res, 401, { ok: false, error: "unauthorized" }, corsOrigin);
+          return;
+        }
+        const source = resolveClientSource(req, trustedProxies);
         const rl = rateLimiter.consume(source);
         if (!rl.allowed) {
           const retryAfter = Math.ceil((rl.resetMs - Date.now()) / 1000);
@@ -143,12 +158,20 @@ export function createPublisherHttpServer(deps: PublisherHttpDeps) {
       }
 
       if (req.method === "GET" && url.pathname === "/v1/reputation/quarantine") {
+        if (authConfig && !isAuthorizedOperator(req, authConfig)) {
+          send(res, 401, { ok: false, error: "unauthorized" }, corsOrigin);
+          return;
+        }
         const quarantine = store.listQuarantine();
         send(res, 200, { ok: true, count: quarantine.length, files: quarantine }, corsOrigin);
         return;
       }
 
       if (req.method === "GET" && url.pathname === "/metrics") {
+        if (authConfig && !isAuthorizedOperator(req, authConfig)) {
+          send(res, 401, { ok: false, error: "unauthorized" }, corsOrigin);
+          return;
+        }
         send(res, 200, formatPrometheusMetrics(metrics), corsOrigin, "text/plain; version=0.0.4; charset=utf-8");
         return;
       }
