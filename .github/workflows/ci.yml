@@ -125,6 +125,114 @@ jobs:
 
       - name: Byte-stability check (rebuild + compare hash)
         run: npx tsx scripts/check-scanner-byte-stability.ts
+  # ── Scanner crate: Rust stable (fmt + clippy + tests) ────────────────
+  scanner-crate:
+    name: Scanner crate (Rust stable)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Detect relevant changes
+        id: changes
+        uses: dorny/paths-filter@v3
+        with:
+          filters: |
+            scanner:
+              - 'scanner/**'
+
+      - name: Install Rust stable
+        if: steps.changes.outputs.scanner == 'true'
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - name: Cache cargo registry and build artifacts
+        if: steps.changes.outputs.scanner == 'true'
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            scanner/target
+          key: ${{ runner.os }}-cargo-scanner-crate-${{ hashFiles('scanner/Cargo.lock') }}
+
+      - name: Formatting
+        if: steps.changes.outputs.scanner == 'true'
+        working-directory: scanner
+        run: cargo fmt --all -- --check
+
+      - name: Clippy
+        if: steps.changes.outputs.scanner == 'true'
+        working-directory: scanner
+        run: cargo clippy --workspace --all-targets -- -D warnings
+
+      - name: Tests
+        if: steps.changes.outputs.scanner == 'true'
+        working-directory: scanner
+        run: cargo test --workspace --locked
+
+  # ── Poseidon crates: Rust stable (fmt + clippy + tests) ──────────────
+  poseidon-crates:
+    name: Poseidon crates (Rust stable)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Detect relevant changes
+        id: changes
+        uses: dorny/paths-filter@v3
+        with:
+          filters: |
+            poseidon:
+              - 'contracts/opaque-poseidon/**'
+              - 'contracts/poseidon-bench/**'
+
+      - name: Install Rust stable
+        if: steps.changes.outputs.poseidon == 'true'
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo registry and build artifacts
+        if: steps.changes.outputs.poseidon == 'true'
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            contracts/opaque-poseidon/target
+            contracts/poseidon-bench/target
+          key: ${{ runner.os }}-cargo-poseidon-${{ hashFiles('contracts/opaque-poseidon/Cargo.lock', 'contracts/poseidon-bench/Cargo.lock') }}
+
+      - name: Formatting (opaque-poseidon)
+        if: steps.changes.outputs.poseidon == 'true'
+        working-directory: contracts/opaque-poseidon
+        run: cargo fmt --all -- --check
+
+      - name: Clippy (opaque-poseidon)
+        if: steps.changes.outputs.poseidon == 'true'
+        working-directory: contracts/opaque-poseidon
+        run: cargo clippy --workspace --all-targets -- -D warnings
+
+      - name: Tests (opaque-poseidon, includes Poseidon constants vectors)
+        if: steps.changes.outputs.poseidon == 'true'
+        working-directory: contracts/opaque-poseidon
+        run: cargo test --workspace --locked
+
+      - name: Formatting (poseidon-bench)
+        if: steps.changes.outputs.poseidon == 'true'
+        working-directory: contracts/poseidon-bench
+        run: cargo fmt --all -- --check
+
+      - name: Clippy (poseidon-bench)
+        if: steps.changes.outputs.poseidon == 'true'
+        working-directory: contracts/poseidon-bench
+        run: cargo clippy --workspace --all-targets -- -D warnings
+
+      - name: Tests (poseidon-bench)
+        if: steps.changes.outputs.poseidon == 'true'
+        working-directory: contracts/poseidon-bench
+        run: cargo test --workspace --locked
 
   # ── SDK: Node 20 ────────────────────────────────────────────────────
   sdk:
@@ -164,6 +272,17 @@ jobs:
 
       - name: Tests
         run: npm test --prefix sdk
+
+  # ── Workflow lint: catch undefined npm run scripts ─────────────────────
+  workflow-lint:
+    name: Workflow script lint
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Validate workflow scripts
+        run: ./scripts/validate-workflow-scripts.sh
 
   # ── Supply chain: cargo audit + deny + npm audit ──────────────────────
   supply-chain:

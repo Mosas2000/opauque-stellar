@@ -23,7 +23,8 @@
     "check:links": "tsx scripts/check-repo-links.ts",
     "soak": "tsx scripts/soak-test.ts",
     "soak:short": "SOAK_DURATION=5m tsx scripts/soak-test.ts",
-    "csp:report": "tsx scripts/csp-report-server.ts"
+    "csp:report": "tsx scripts/csp-report-server.ts",
+    "audit:supply-chain": "npm audit --omit=dev --audit-level=high && npm audit --omit=dev --audit-level=high --prefix frontend"
   },
   "devDependencies": {
     "@types/node": "^22.15.0",

@@ -18,6 +18,24 @@ import {
 } from "./rate-limit.ts";
 
 import type { PayoutReconciler } from "./reconciler.ts";
+import { loadTrustedProxiesFromEnv, resolveClientSource } from "./trusted-proxy.ts";
+
+/** Stable error code returned when a request body exceeds the configured limit. */
+export const PAYLOAD_TOO_LARGE_CODE = "PAYLOAD_TOO_LARGE";
+
+export class PayloadTooLargeError extends Error {
+  readonly code = PAYLOAD_TOO_LARGE_CODE;
+  readonly limitBytes: number;
+
+  constructor(limitBytes: number) {
+    super(`request body exceeds the ${limitBytes} byte limit`);
+    this.limitBytes = limitBytes;
+  }
+}
+
+/** Streaming body-size cap for relayer HTTP endpoints. Override via RELAYER_MAX_BODY_BYTES. */
+const DEFAULT_MAX_BODY_BYTES = 64 * 1024;
+const MAX_BODY_BYTES = Number(process.env.RELAYER_MAX_BODY_BYTES ?? DEFAULT_MAX_BODY_BYTES);
 
 
 export type RelayerHttpBackend = {
@@ -36,9 +54,17 @@ export type RelayerHttpBackend = {
 };
 
 async function readJson(req: IncomingMessage): Promise<unknown> {
+  let total = 0;
   const chunks: Uint8Array[] = [];
   for await (const chunk of req) {
-    chunks.push(typeof chunk === "string" ? Buffer.from(chunk) : chunk);
+    const buf = typeof chunk === "string" ? Buffer.from(chunk) : chunk;
+    total += buf.length;
+    if (total > MAX_BODY_BYTES) {
+      // Abort the read immediately rather than buffering the rest of an oversized body.
+      req.destroy();
+      throw new PayloadTooLargeError(MAX_BODY_BYTES);
+    }
+    chunks.push(buf);
   }
   if (chunks.length === 0) return {};
   return JSON.parse(Buffer.concat(chunks).toString("utf8"));
@@ -69,11 +95,10 @@ export function createRelayerHttpServer(
   // flood spread across endpoints); `limiter` is a tight cap on state-mutating routes.
   const limiter = rateLimiter ?? createRateLimiterFromEnv();
   const globalLimiter = globalRateLimiter ?? createGlobalRateLimiterFromEnv();
+  const trustedProxies = loadTrustedProxiesFromEnv();
 
   function extractSource(req: IncomingMessage): string {
-    const forwarded = req.headers["x-forwarded-for"];
-    if (typeof forwarded === "string") return forwarded.split(",")[0].trim();
-    return req.socket.remoteAddress ?? "unknown";
+    return resolveClientSource(req, trustedProxies);
   }
 
   function applyRateLimitHeaders(res: ServerResponse, rl: RateLimitResult): void {
@@ -236,6 +261,10 @@ export function createRelayerHttpServer(
       }
       send(res, 404, { error: "not found" });
     } catch (err) {
+      if (err instanceof PayloadTooLargeError) {
+        send(res, 413, { error: err.message, code: err.code });
+        return;
+      }
       send(res, 400, { error: err instanceof Error ? err.message : String(err) });
     }
   });

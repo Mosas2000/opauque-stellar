@@ -88,6 +88,7 @@ export function createMetrics(): PublisherMetrics {
     startedAt: new Date().toISOString(),
     totalDuplicateResubmissions: 0,
     totalIdentityCollisions: 0,
+    totalTickFailures: 0,
   };
 }
 

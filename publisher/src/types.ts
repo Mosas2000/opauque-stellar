@@ -51,6 +51,8 @@ export interface PublisherMetrics {
   startedAt: string;
   totalDuplicateResubmissions: number;
   totalIdentityCollisions: number;
+  /** Background publish-tick failures (the tick loop retries on the next interval). */
+  totalTickFailures: number;
 }
 
 export interface QuarantinedFile {

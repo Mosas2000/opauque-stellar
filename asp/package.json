@@ -9,7 +9,8 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "indexer:once": "tsx scripts/indexer.ts --once",
-    "indexer": "tsx scripts/indexer.ts"
+    "indexer": "tsx scripts/indexer.ts",
+    "serve": "tsx scripts/server.ts"
   },
   "dependencies": {
     "@stellar/stellar-sdk": "^15.1.0",

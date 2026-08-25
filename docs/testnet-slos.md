@@ -51,6 +51,9 @@ npm run slo:report -- --window 7d --json
 
 # Include the publisher's HTTP availability signal:
 npm run slo:report -- --publisher-url http://127.0.0.1:8790
+
+# Include the ASP's HTTP availability signal:
+npm run slo:report -- --asp-url http://127.0.0.1:8791
 ```
 
 ### Why "lag", not literal event-to-event latency
@@ -97,7 +100,9 @@ default interval and 1 confirmation, a deposit should be reflected within roughl
 - **Measurement source:** Soroban RPC `getEvents` against `deployments/v1/<network>.json`
   → `contracts.privacyPool.id`, topics `Deposit`, `AspRootPublished`, `StateRootPublished`.
   No access to the ASP process itself is required — this is a fully external,
-  on-chain measurement.
+  on-chain measurement. Optionally also probes `<asp-url>/health` (`--asp-url` /
+  `SLO_ASP_URL`) for a direct reachability signal; this is skipped, not failed, when no
+  URL is configured.
 
 ### Relayer completion
 

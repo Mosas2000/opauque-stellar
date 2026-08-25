@@ -12,7 +12,34 @@ npm run typecheck
 npm test            # engine reconcile, set/tree, policy, store (offline)
 ASP_SECRET=S... npm run indexer:once   # one live reconcile pass against testnet
 ASP_SECRET=S... npm run indexer        # loop every ASP_INTERVAL_MS
+ASP_SECRET=S... npm run serve          # reconcile loop + /health, /metrics, /manifest
 ```
+
+## Publication monitoring and reorg guard
+
+Every tick (`indexer.ts`, `server.ts`) wires two safety components into `runPoolTick`:
+
+- **`PublicationMonitor`** (`src/monitor.ts`) tracks how long ago the ASP root last
+  published and alerts (logged to stderr as `[ALERT] ...`) once it exceeds
+  `ASP_MAX_ROOT_AGE_MS` — the operator learns about a silently stuck publish loop
+  before withdrawers do.
+- **`ReorgGuard`** (`src/reorg-guard.ts`) tracks ledger continuity across ticks and
+  halts publication (logged as `[REORG] ...`) if a batch starts before the last
+  committed ledger, instead of baking a suspect root into the manifest.
+
+## HTTP server (`npm run serve`)
+
+`scripts/server.ts` runs the same reconcile loop as `indexer.ts` in the background and
+additionally exposes:
+
+| Method | Path        | Purpose                                                                 |
+| ------ | ----------- | ------------------------------------------------------------------------ |
+| `GET`  | `/health`   | `200` when the last tick succeeded and the root is within `ASP_MAX_ROOT_AGE_MS`; `503` otherwise. |
+| `GET`  | `/metrics`  | Prometheus exposition format: tick duration, publication lag, and failure/halt/alert counters. |
+| `GET`  | `/manifest` | The current association-set manifest (`data/sets/<poolId>/latest.json`), `404` before the first publish. |
+
+Bind host/port/CORS are configured via `ASP_HTTP_HOST` (default `127.0.0.1`),
+`ASP_HTTP_PORT` (default `8791`), and `ASP_CORS_ORIGIN` (default `*`).
 
 ## What it does (per tick)
 
@@ -61,6 +88,10 @@ is used.
 | `ASP_SECRET` | — (required) | ASP authority `S…` seed (the pool admin in the demo) |
 | `ASP_INTERVAL_MS` | `15000` | loop interval |
 | `ASP_CONFIRMATIONS` | `1` | confirmations before a deposit is treated as final |
+| `ASP_MAX_ROOT_AGE_MS` | `120000` | max age of the last published root before `PublicationMonitor` alerts / `/health` reports unhealthy |
+| `ASP_HTTP_HOST` | `127.0.0.1` | `npm run serve` bind host |
+| `ASP_HTTP_PORT` | `8791` | `npm run serve` bind port |
+| `ASP_CORS_ORIGIN` | `*` | `npm run serve` CORS origin |
 | `IPFS_API_URL` | — | optional manifest pinning endpoint |
 
 Pool id + scope are resolved from `deployments/v1/testnet.json`.

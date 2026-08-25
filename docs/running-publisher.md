@@ -66,6 +66,7 @@ REPUTATION_VERIFIER_ID=C...
 | PUBLISHER_CORS_ORIGIN   | No       | \*                                       | Browser CORS origin for frontend                               |
 | PUBLISHER_DATA_DIR      | No       | ./data                                   | Directory for persistent state                                 |
 | PUBLISHER_MAX_INBOX     | No       | 5000                                     | Maximum pending leaves before backpressure                     |
+| PUBLISHER_MAX_BODY_BYTES | No      | 32768                                    | Streaming request-body limit for leaf submissions (413 past this) |
 | PUBLISHER_INTERVAL_MS   | No       | 15000                                    | Milliseconds between publish cycles                            |
 | REPUTATION_VERIFIER_ID  | No       | Manifest contracts.reputationVerifier.id | Contract ID for reputation verifier                            |
 | RATE_LIMIT_WINDOW_MS    | No       | 60000                                    | Rate limiting window (milliseconds)                            |
@@ -108,10 +109,15 @@ The default loop interval is 15 seconds. The HTTP API binds to PUBLISHER_HTTP_HO
 
 | Endpoint                      | Method | Purpose                             |
 | ----------------------------- | ------ | ----------------------------------- |
-| POST /v1/reputation/leaves    | POST   | Submit a reputation leaf commitment |
+| POST /v1/reputation/leaves    | POST   | Queue a reputation leaf commitment; publishes asynchronously on the background tick |
 | GET /v1/reputation/root       | GET    | Get the current published root      |
 | GET /v1/reputation/path/:leaf | GET    | Get Merkle path for a specific leaf |
 | GET /health                   | GET    | Health check (200 OK)               |
+
+Submission returns `202` immediately with an inbox acknowledgement — publication to
+Soroban happens on the next background tick (`PUBLISHER_INTERVAL_MS`), retried on
+failure, not inside the request. Confirm inclusion afterwards via the root/snapshot
+endpoints.
 
 ### Submit Leaf
 

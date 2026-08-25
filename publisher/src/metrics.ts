@@ -48,5 +48,9 @@ export function formatPrometheusMetrics(metrics: PublisherMetrics): string {
   lines.push("# TYPE publisher_total_identity_collisions counter");
   lines.push(`publisher_total_identity_collisions ${metrics.totalIdentityCollisions}`);
 
+  lines.push("# HELP publisher_total_tick_failures Total number of failed background publish ticks (retried on the next interval).");
+  lines.push("# TYPE publisher_total_tick_failures counter");
+  lines.push(`publisher_total_tick_failures ${metrics.totalTickFailures}`);
+
   return lines.join("\n") + "\n";
 }
