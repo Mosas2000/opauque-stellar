@@ -92,6 +92,10 @@ Contributors should reproduce failures locally with the same combo before pushin
 
 ## 4. First-time setup
 
+> **Full walkthrough:** [`docs/LOCAL_DEVELOPMENT.md`](../docs/LOCAL_DEVELOPMENT.md)
+> covers fresh-clone setup, environment variables, generated artifacts, and a
+> troubleshooting section. The summary below matches the full guide.
+
 Each Node workspace pins its dependencies with a lockfile and must be installed with
 `npm ci` (not `npm install`) so you match the lockfile exactly.
 
@@ -150,6 +154,11 @@ All checks below run automatically on every PR via
 against the supported version combos (see § 3); a failure names the exact version
 so you can reproduce locally. Run the checks relevant to your change locally
 before you push.
+
+A root `Makefile` wraps every command below so you do not have to memorise flags.
+Run `make help` to see all targets, or `make ci` to run all offline checks at once.
+See [`docs/LOCAL_DEVELOPMENT.md`](../docs/LOCAL_DEVELOPMENT.md) for the full
+setup guide and troubleshooting section.
 
 ### 6a. Contracts (Rust workspace)
 
