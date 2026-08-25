@@ -93,6 +93,7 @@ function parseStored(raw: string | null): GhostEntry[] {
 
 type GhostState = {
   entries: GhostEntry[];
+  persistenceFailed: boolean;
   add: (entry: Omit<GhostEntry, "createdAt">) => void;
   remove: (stealthAddress: string, cluster: string) => void;
   /** Replace entries (used when rehydrating from localStorage). */
@@ -107,8 +108,8 @@ type GhostState = {
   getForCluster: (cluster: string) => GhostEntry[];
 };
 
-async function persistEntries(entries: GhostEntry[]): Promise<void> {
-  if (typeof localStorage === "undefined") return;
+async function persistEntries(entries: GhostEntry[]): Promise<boolean> {
+  if (typeof localStorage === "undefined") return false;
   try {
     if (_password) {
       const encrypted = await encryptGhostEntries(entries, _password);
@@ -116,13 +117,15 @@ async function persistEntries(entries: GhostEntry[]): Promise<void> {
     } else {
       localStorage.setItem(STORAGE_KEY, JSON.stringify(entries));
     }
+    return true;
   } catch {
-    /* ignore quota / private mode */
+    return false;
   }
 }
 
 export const useGhostAddressStore = create<GhostState>()((set, get) => ({
   entries: [],
+  persistenceFailed: false,
 
   add: (entry) => {
     if (
@@ -132,9 +135,11 @@ export const useGhostAddressStore = create<GhostState>()((set, get) => ({
       return;
     }
     const newEntry = normalizeEntry(entry);
-    set((state) => ({
-      entries: [...state.entries, newEntry],
-    }));
+    const nextEntries = [...get().entries, newEntry];
+    set({ entries: nextEntries });
+    void persistEntries(nextEntries).then((ok) => {
+      if (!ok) set({ persistenceFailed: true });
+    });
   },
 
   remove: (stealthAddress, cluster) =>
@@ -145,7 +150,9 @@ export const useGhostAddressStore = create<GhostState>()((set, get) => ({
           String(e.stealthAddress).toLowerCase() !==
             stealthAddress.toLowerCase(),
       );
-      void persistEntries(entries);
+      void persistEntries(entries).then((ok) => {
+        if (!ok) set({ persistenceFailed: true });
+      });
       return { entries };
     }),
 
@@ -237,7 +244,9 @@ export function useGhostAddressPersistence(): void {
   useEffect(() => {
     if (typeof localStorage === "undefined") return;
     if (!hasLoadedFromStorage.current) return;
-    void persistEntries(entries);
+    void persistEntries(entries).then((ok) => {
+      if (!ok) useGhostAddressStore.setState({ persistenceFailed: true });
+    });
   }, [entries]);
 }
 

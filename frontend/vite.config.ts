@@ -133,6 +133,7 @@ export default defineConfig({
       { find: '@wasm', replacement: path.resolve(__dirname, 'public/pkg') },
       { find: '@deployments', replacement: path.resolve(__dirname, '../deployments') },
       { find: '@relayer', replacement: path.resolve(__dirname, '../relayer/src') },
+      { find: '@opaquecash/stellar', replacement: path.resolve(__dirname, '../sdk/src') },
       {
         find: '@stellar/stellar-sdk',
         replacement: path.resolve(__dirname, 'node_modules/@stellar/stellar-sdk'),

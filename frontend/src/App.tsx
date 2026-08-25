@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, lazy, Suspense } from "react";
+import { ViewErrorBoundary } from "./components/ViewErrorBoundary";
 import { useLocation, useNavigate } from "react-router-dom";
 import { MotionConfig } from "framer-motion";
 import { usePrefersReducedMotion } from "./hooks/usePrefersReducedMotion";
@@ -240,7 +241,9 @@ function AppContent() {
       onDisconnect={handleDisconnect}
       protocolLog={protocolLogPanel}
     >
-      <NetworkGuard>{renderView()}</NetworkGuard>
+      <NetworkGuard>
+        <ViewErrorBoundary>{renderView()}</ViewErrorBoundary>
+      </NetworkGuard>
     </Layout>
   );
 }

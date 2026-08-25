@@ -6,6 +6,7 @@ export default defineConfig({
     alias: {
       "@wasm": path.resolve(__dirname, "public/pkg"),
       "@deployments": path.resolve(__dirname, "../deployments"),
+      "@opaquecash/stellar": path.resolve(__dirname, "../sdk/src"),
       buffer: "buffer",
       process: "process/browser",
     },
