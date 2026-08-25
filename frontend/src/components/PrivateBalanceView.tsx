@@ -63,6 +63,10 @@ import type { PoolSweepResult } from "../lib/poolSweep";
 import { ModalShell } from "./ModalShell";
 import { RecoveryDocLink } from "./RecoveryDocLink";
 import { getFeatureFlags } from "../lib/featureFlags";
+import {
+  notifyScanComplete,
+  requestScanNotificationPermission,
+} from "../lib/scanNotifications";
 
 export type FoundTx = {
   id: string;
@@ -405,6 +409,7 @@ export type PortfolioEntry = { tx: FoundTx; balanceRaw: bigint };
 const DUST_CEILING_STROOPS = 10_000_000n + 100n; // 1 XLM reserve + 0.00001 fee
 
 const SHOW_DUST_STORAGE_KEY = "opaque-show-dust";
+const SCAN_NOTIFICATIONS_STORAGE_KEY = "opaque-scan-notifications";
 
 // Initial render is capped to one page; "Load more" grows it incrementally
 // instead of rendering the full (potentially thousands-long) history at once.
@@ -488,6 +493,13 @@ export function PrivateBalanceView() {
       return false;
     }
   });
+  const [scanNotificationsEnabled, setScanNotificationsEnabled] = useState<boolean>(() => {
+    try {
+      return localStorage.getItem(SCAN_NOTIFICATIONS_STORAGE_KEY) === "1";
+    } catch {
+      return false;
+    }
+  });
   const toggleShowDust = useCallback(() => {
     setShowDust((v) => {
       const next = !v;
@@ -499,6 +511,24 @@ export function PrivateBalanceView() {
       return next;
     });
   }, []);
+  const toggleScanNotifications = useCallback(async () => {
+    if (!scanNotificationsEnabled) {
+      const granted = await requestScanNotificationPermission();
+      if (!granted) {
+        showToast("Browser notifications were not enabled.");
+        return;
+      }
+    }
+    setScanNotificationsEnabled((v) => {
+      const next = !v;
+      try {
+        localStorage.setItem(SCAN_NOTIFICATIONS_STORAGE_KEY, next ? "1" : "0");
+      } catch {
+        /* localStorage unavailable; keep in-memory only */
+      }
+      return next;
+    });
+  }, [scanNotificationsEnabled, showToast]);
   const [ghostAnnounceTarget, setGhostAnnounceTarget] = useState<{
     stealthAddress: `0x${string}`;
     ephemeralPrivKeyHex: `0x${string}`;
@@ -969,6 +999,14 @@ export function PrivateBalanceView() {
     return () => clearTimeout(t);
   }, [newlyDetectedIds]);
 
+  useEffect(() => {
+    if (!scanNotificationsEnabled || scanner.progress.phase !== "done") return;
+    void notifyScanComplete({
+      foundCount: found.filter((tx) => !tx.isSpent && tx.balance > 0n).length,
+      newGhostCount: ghostTxs.filter((tx) => tx.balance > 0n).length,
+    });
+  }, [scanNotificationsEnabled, scanner.progress.phase, found, ghostTxs]);
+
   const claimableEntries = portfolio.claimable;
   const dustEntries = portfolio.dust;
   const allEntries = useMemo(
@@ -1040,6 +1078,22 @@ export function PrivateBalanceView() {
         </div>
 
         <PrivacyWarningCallout message={SCANNER_PRIVACY_WARNING} className="mt-4" />
+
+        <div className="mt-4 flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-ink-700/60 bg-ink-900/25 p-4">
+          <div>
+            <p className="text-sm font-semibold text-white">Scan completion notifications</p>
+            <p className="text-xs text-mist/70">
+              Optional browser alerts announce completed scans without showing balances.
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={toggleScanNotifications}
+            className="rounded-xl border border-ink-600 bg-ink-950/30 px-3.5 py-2 text-sm font-medium text-mist transition-colors hover:border-white/30 hover:text-white"
+          >
+            {scanNotificationsEnabled ? "Disable" : "Enable"}
+          </button>
+        </div>
 
         {/* Scanning status */}
         <div
