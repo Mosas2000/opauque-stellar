@@ -284,6 +284,44 @@ jobs:
       - name: Validate workflow scripts
         run: ./scripts/validate-workflow-scripts.sh
 
+  # ── Service images: asp, publisher, relayer (#770) ──────────────────
+  service-images:
+    name: Build ${{ matrix.service }} image
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        service: [asp, publisher, relayer]
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build ${{ matrix.service }} image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ${{ matrix.service }}/Dockerfile
+          push: false
+          load: true
+          tags: opaque-${{ matrix.service }}:ci
+          cache-from: type=gha,scope=${{ matrix.service }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.service }}
+
+      - name: Verify non-root runtime user
+        run: |
+          user="$(docker run --rm --entrypoint id opaque-${{ matrix.service }}:ci -u)"
+          echo "runtime user: $user"
+          [ "$user" != "0" ]
+
+      - name: Verify HEALTHCHECK is declared
+        run: |
+          healthcheck="$(docker inspect --format='{{.Config.Healthcheck}}' opaque-${{ matrix.service }}:ci)"
+          echo "$healthcheck"
+          [ "$healthcheck" != "<nil>" ]
+
   # ── Supply chain: cargo audit + deny + npm audit ──────────────────────
   supply-chain:
     name: Supply chain audit
