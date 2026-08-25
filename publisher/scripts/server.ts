@@ -2,11 +2,15 @@
 /**
  * Minimal reputation publisher HTTP API.
  *
- * POST   /v1/reputation/leaves
+ * POST   /v1/reputation/leaves        - requires Bearer token in PUBLISHER_SUBMIT_TOKENS
  * GET    /v1/reputation/root/:leaf
  * GET    /v1/reputation/snapshot/:verifierId
- * GET    /metrics  (Prometheus exposition format)
+ * GET    /v1/reputation/quarantine    - requires Bearer token in PUBLISHER_OPERATOR_TOKENS
+ * GET    /metrics                     - requires Bearer token in PUBLISHER_OPERATOR_TOKENS
  * GET    /health
+ *
+ * See src/auth.ts for the token issuance flow and src/trusted-proxy.ts for
+ * PUBLISHER_TRUSTED_PROXIES, which gates how X-Forwarded-For is honored.
  */
 import { createServer } from "node:http";
 import { readFileSync } from "node:fs";
@@ -22,6 +26,8 @@ import { normalizeHex32 } from "../src/bytes.ts";
 import { buildTreeSnapshot, computeSnapshotHash } from "../src/snapshot.ts";
 import { formatPrometheusMetrics } from "../src/metrics.ts";
 import { createRateLimiterFromEnv } from "../src/rate-limit.ts";
+import { loadAuthConfigFromEnv, isAuthorizedSubmitter, isAuthorizedOperator } from "../src/auth.ts";
+import { loadTrustedProxiesFromEnv, resolveClientSource } from "../src/trusted-proxy.ts";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = resolve(__dirname, "..", "..");
@@ -44,7 +50,7 @@ function loadConfig() {
       : join(__dirname, "..", "data"),
     host: process.env.PUBLISHER_HTTP_HOST ?? "127.0.0.1",
     port: Number(process.env.PUBLISHER_HTTP_PORT ?? 8790),
-    corsOrigin: process.env.PUBLISHER_CORS_ORIGIN ?? "*",
+    corsOrigin: process.env.PUBLISHER_CORS_ORIGIN ?? "",
   };
 }
 
@@ -99,11 +105,11 @@ async function main() {
     publisher: cfg.publisher,
   });
   const rateLimiter = createRateLimiterFromEnv();
+  const authCfg = loadAuthConfigFromEnv();
+  const trustedProxies = loadTrustedProxiesFromEnv();
 
   function extractSource(req): string {
-    const forwarded = req.headers["x-forwarded-for"];
-    if (typeof forwarded === "string") return forwarded.split(",")[0].trim();
-    return req.socket.remoteAddress ?? "unknown";
+    return resolveClientSource(req, trustedProxies);
   }
 
   const server = createServer(async (req, res) => {
@@ -116,10 +122,18 @@ async function main() {
       const url = new URL(req.url ?? "/", `http://${req.headers.host ?? "localhost"}`);
 
       if (req.method === "POST" && url.pathname === "/v1/reputation/leaves") {
+        if (!isAuthorizedSubmitter(req, authCfg)) {
+          send(res, 401, { ok: false, error: "unauthorized" }, cfg.corsOrigin);
+          return;
+        }
         const source = extractSource(req);
         const rl = rateLimiter.consume(source);
         if (!rl.allowed) {
           const retryAfter = Math.ceil((rl.resetMs - Date.now()) / 1000);
+          res.setHeader("X-RateLimit-Limit", String(rl.limit));
+          res.setHeader("X-RateLimit-Remaining", String(rl.remaining));
+          res.setHeader("X-RateLimit-Reset", String(Math.ceil(rl.resetMs / 1000)));
+          res.setHeader("Retry-After", String(retryAfter));
           send(res, 429, {
             ok: false,
             error: "rate limit exceeded",
@@ -127,10 +141,6 @@ async function main() {
             limit: rl.limit,
             remaining: rl.remaining,
           }, cfg.corsOrigin);
-          res.setHeader("X-RateLimit-Limit", String(rl.limit));
-          res.setHeader("X-RateLimit-Remaining", String(rl.remaining));
-          res.setHeader("X-RateLimit-Reset", String(Math.ceil(rl.resetMs / 1000)));
-          res.setHeader("Retry-After", String(retryAfter));
           return;
         }
 
@@ -187,6 +197,10 @@ async function main() {
       }
 
       if (req.method === "GET" && url.pathname === "/v1/reputation/quarantine") {
+        if (!isAuthorizedOperator(req, authCfg)) {
+          send(res, 401, { ok: false, error: "unauthorized" }, cfg.corsOrigin);
+          return;
+        }
         const quarantine = store.listQuarantine();
         send(res, 200, {
           ok: true,
@@ -197,6 +211,10 @@ async function main() {
       }
 
       if (req.method === "GET" && url.pathname === "/metrics") {
+        if (!isAuthorizedOperator(req, authCfg)) {
+          send(res, 401, { ok: false, error: "unauthorized" }, cfg.corsOrigin);
+          return;
+        }
         const body = formatPrometheusMetrics(metrics);
         send(res, 200, body, cfg.corsOrigin, "text/plain; version=0.0.4; charset=utf-8");
         return;
