@@ -1,0 +1,18 @@
+# Keeps the build context small and prevents secrets/large artifacts from
+# ever reaching a Docker build (#770). All three service Dockerfiles build
+# from the repo root — see asp/Dockerfile, publisher/Dockerfile,
+# relayer/Dockerfile for why.
+.git
+.env
+.env.*
+!.env.example
+**/node_modules
+**/data
+**/.opaque-relayer
+**/dist
+**/target
+artifacts
+circuits/build
+frontend/dist
+frontend/node_modules
+*.log

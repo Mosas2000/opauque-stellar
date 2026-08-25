@@ -1,0 +1,69 @@
+# Brings up the ASP, reputation publisher (HTTP API), and relayer against
+# testnet configuration (#770). Secrets are NOT baked into this file or the
+# images — set them in a local .env (git-ignored) alongside this file, or
+# export them in the shell before running `docker compose up`. See
+# docs/secrets-management.md for what each secret authorizes and how to
+# rotate it; treat every *_SECRET value here exactly as described there.
+#
+# Usage:
+#   cp .env.example .env   # fill in the *_SECRET / *_X25519_SECRET values
+#   docker compose up --build
+#
+# This intentionally does not attempt to run any service against mainnet —
+# see docs/secrets-management.md and publisher/README.md "Production Shape"
+# for why the current MVP secret model (shared admin key, file-backed state)
+# is testnet/demo-only.
+
+services:
+  asp:
+    build:
+      context: .
+      dockerfile: asp/Dockerfile
+    environment:
+      STELLAR_RPC_URL: ${STELLAR_RPC_URL:-https://soroban-testnet.stellar.org}
+      ASP_SECRET: ${ASP_SECRET:?set ASP_SECRET in .env — see docs/secrets-management.md}
+      ASP_INTERVAL_MS: ${ASP_INTERVAL_MS:-15000}
+      ASP_CONFIRMATIONS: ${ASP_CONFIRMATIONS:-1}
+    volumes:
+      - asp-data:/app/data
+    restart: unless-stopped
+
+  publisher:
+    build:
+      context: .
+      dockerfile: publisher/Dockerfile
+    environment:
+      STELLAR_RPC_URL: ${STELLAR_RPC_URL:-https://soroban-testnet.stellar.org}
+      PUBLISHER_SECRET: ${PUBLISHER_SECRET:?set PUBLISHER_SECRET in .env — see docs/secrets-management.md}
+      PUBLISHER_INTERVAL_MS: ${PUBLISHER_INTERVAL_MS:-15000}
+      PUBLISHER_MAX_INBOX: ${PUBLISHER_MAX_INBOX:-10000}
+      PUBLISHER_HTTP_HOST: 0.0.0.0
+      PUBLISHER_HTTP_PORT: ${PUBLISHER_HTTP_PORT:-8790}
+      PUBLISHER_CORS_ORIGIN: ${PUBLISHER_CORS_ORIGIN:-*}
+    ports:
+      - "${PUBLISHER_HTTP_PORT:-8790}:8790"
+    volumes:
+      - publisher-data:/app/data
+    restart: unless-stopped
+
+  relayer:
+    build:
+      context: .
+      dockerfile: relayer/Dockerfile
+    environment:
+      STELLAR_RPC_URL: ${STELLAR_RPC_URL:-https://soroban-testnet.stellar.org}
+      RELAYER_OPERATOR_SECRET: ${RELAYER_OPERATOR_SECRET:?set RELAYER_OPERATOR_SECRET in .env — see docs/secrets-management.md}
+      RELAYER_X25519_SECRET: ${RELAYER_X25519_SECRET:?set RELAYER_X25519_SECRET in .env — see docs/running-relayer.md}
+      RELAYER_ENDPOINT: ${RELAYER_ENDPOINT:-http://127.0.0.1:8787}
+      RELAYER_PORT: ${RELAYER_PORT:-8787}
+      RELAYER_MIN_FEE: ${RELAYER_MIN_FEE:-100000}
+    ports:
+      - "${RELAYER_PORT:-8787}:8787"
+    volumes:
+      - relayer-data:/app/.opaque-relayer
+    restart: unless-stopped
+
+volumes:
+  asp-data:
+  publisher-data:
+  relayer-data:

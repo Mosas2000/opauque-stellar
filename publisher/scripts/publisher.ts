@@ -16,12 +16,13 @@ import { Keypair } from "@stellar/stellar-sdk";
 import { StellarReputationAdapter } from "../src/chains/stellar.ts";
 import { runPublisherTick, createMetrics } from "../src/engine.ts";
 import { FileStore } from "../src/store.ts";
+import { numberEnv } from "../src/env.ts";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = resolve(__dirname, "..", "..");
 const NETWORK_PASSPHRASE = "Test SDF Network ; September 2015";
 
-const MAX_INBOX_SIZE = Number(process.env.PUBLISHER_MAX_INBOX ?? 10_000);
+const MAX_INBOX_SIZE = numberEnv("PUBLISHER_MAX_INBOX", 10_000, { min: 1, integer: true });
 
 function loadConfig() {
   const manifest = JSON.parse(readFileSync(join(REPO_ROOT, "deployments", "v1", "testnet.json"), "utf8"));
@@ -35,7 +36,7 @@ function loadConfig() {
     verifierId,
     publisher: Keypair.fromSecret(secret),
     rpcUrl: process.env.STELLAR_RPC_URL ?? manifest.rpcUrl ?? "https://soroban-testnet.stellar.org",
-    intervalMs: Number(process.env.PUBLISHER_INTERVAL_MS ?? 15000),
+    intervalMs: numberEnv("PUBLISHER_INTERVAL_MS", 15000, { min: 1 }),
     dataDir: process.env.PUBLISHER_DATA_DIR
       ? resolve(process.env.PUBLISHER_DATA_DIR)
       : join(__dirname, "..", "data"),

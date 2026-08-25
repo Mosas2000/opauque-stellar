@@ -4,6 +4,8 @@ The relayer market lets users withdraw from the privacy pool without submitting 
 
 For the MVP demo, a relayer is already running on testnet at `https://g-stelar-relayer.opaque.cash`. Operators can run additional relayers and connect them to the shared gateway.
 
+> Prefer a container? See [Running the services with Docker](running-with-docker.md), which builds a pinned, non-root image for the relayer (and the ASP + publisher) and brings them all up with `docker compose up`.
+
 ## Production Shape
 
 The intended production shape is a shared public gossip hub:

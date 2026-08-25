@@ -4,6 +4,8 @@ The reputation publisher collects V2 reputation leaf commitments submitted by ho
 
 For the MVP demo, a publisher is already running on testnet. Run your own publisher when testing operator flows, custom policy, or production-style infrastructure.
 
+> Prefer a container? See [Running the services with Docker](running-with-docker.md), which builds a pinned, non-root image for the publisher (and the ASP + relayer) and brings them all up with `docker compose up`.
+
 ## What The Publisher Does
 
 | Function                | Purpose                                                                  |

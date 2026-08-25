@@ -93,6 +93,14 @@ deployment task per registry; do not consider any of the four "migrated"
 until its manifest entry records a `multisig-admin` address in the `admin`
 slot.
 
+`scripts/migrate-to-multisig-admin.ts` (#771) automates steps 1–3 above —
+deploy, `initialize`, then `transfer_admin`/`transfer_governance` across all
+four registries in one run — for an operator who supplies the real deployer
+key and signer set. See
+[`MULTISIG_MIGRATION_RUNBOOK.md`](MULTISIG_MIGRATION_RUNBOOK.md) for the full
+checklist (signer selection, dry-run, verification, partial-failure
+recovery) that script is one step of.
+
 ## Publishing a registry admin call
 
 A signer proposing a call needs the target function's arguments pre-encoded

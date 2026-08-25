@@ -1,3 +1,5 @@
+import { numberEnv } from "./env.ts";
+
 interface Bucket {
   tokens: number;
   lastRefill: number;
@@ -76,9 +78,9 @@ export class RateLimiter {
 
 /** Tight tier: applied only to state-mutating endpoints (job creation, payload delivery, gossip). */
 export function createRateLimiterFromEnv(): RateLimiter {
-  const windowMs = Number(process.env.RATE_LIMIT_WINDOW_MS ?? 60_000);
-  const maxRequests = Number(process.env.RATE_LIMIT_MAX_REQUESTS ?? 120);
-  const burstSize = Number(process.env.RATE_LIMIT_BURST ?? 20);
+  const windowMs = numberEnv("RATE_LIMIT_WINDOW_MS", 60_000, { min: 1 });
+  const maxRequests = numberEnv("RATE_LIMIT_MAX_REQUESTS", 120, { min: 1 });
+  const burstSize = numberEnv("RATE_LIMIT_BURST", 20, { min: 1 });
   return new RateLimiter(windowMs, maxRequests, burstSize);
 }
 
@@ -89,8 +91,8 @@ export function createRateLimiterFromEnv(): RateLimiter {
  * — polling bids, checking health, etc. — will not come close to it.
  */
 export function createGlobalRateLimiterFromEnv(): RateLimiter {
-  const windowMs = Number(process.env.RATE_LIMIT_WINDOW_MS ?? 60_000);
-  const maxRequests = Number(process.env.RATE_LIMIT_GLOBAL_MAX_REQUESTS ?? 600);
-  const burstSize = Number(process.env.RATE_LIMIT_GLOBAL_BURST ?? 200);
+  const windowMs = numberEnv("RATE_LIMIT_WINDOW_MS", 60_000, { min: 1 });
+  const maxRequests = numberEnv("RATE_LIMIT_GLOBAL_MAX_REQUESTS", 600, { min: 1 });
+  const burstSize = numberEnv("RATE_LIMIT_GLOBAL_BURST", 200, { min: 1 });
   return new RateLimiter(windowMs, maxRequests, burstSize);
 }
