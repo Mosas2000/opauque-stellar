@@ -18,10 +18,10 @@ export type DocId =
   | "proof-submission-privacy";
 
 const DOC_PATHS: Record<DocId, string> = {
-  "user-recovery": "README.md#recovery",
-  "ghost-threat-model": "README.md#privacy",
-  "payment-link-format": "README.md#payment-links",
-  "privacy-pool": "README.md#where-zk-does-the-work",
+  "user-recovery": "README.md#honest-trade-offs",
+  "ghost-threat-model": "README.md#where-the-zero-knowledge-does-the-work",
+  "payment-link-format": "README.md#what-opaque-does",
+  "privacy-pool": "README.md#where-the-zero-knowledge-does-the-work",
   "proof-submission-privacy": "docs/PROOF_SUBMISSION_PRIVACY.md",
 };
 
@@ -40,17 +40,14 @@ export function getUserRecoverySectionUrl(
     | "what-to-backup",
 ): string {
   const anchors: Record<typeof section, string> = {
-    "what-to-backup": "recovery",
-    "signature-keys": "recovery",
-    "browser-session": "recovery",
-    "payment-link": "recovery",
-    "manual-ghost": "recovery",
-    "ghost-backup": "recovery",
-    "device-migration": "recovery",
+    "what-to-backup": "honest-trade-offs",
+    "signature-keys": "security",
+    "browser-session": "security",
+    "payment-link": "where-the-zero-knowledge-does-the-work",
+    "manual-ghost": "where-the-zero-knowledge-does-the-work",
+    "ghost-backup": "honest-trade-offs",
+    "device-migration": "honest-trade-offs",
   };
-  // The recovery notes live in a single README section, so build the URL from
-  // the doc's file path (not getDocUrl, which already carries an anchor; that
-  // produced a doubled "#recovery#recovery" fragment).
   const recoveryFile = DOC_PATHS["user-recovery"].split("#")[0];
   return `${docsBaseUrl()}/${recoveryFile}#${anchors[section]}`;
 }
