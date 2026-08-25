@@ -42,6 +42,8 @@ function main() {
 
   for (const entry of Object.values(manifest.scanner.files)) {
     updatePathEntry(entry);
+    // Enforce single-hash policy: strip any stale alternates.
+    delete entry.sha256Alternates;
   }
 
   for (const version of Object.keys(manifest.circuits)) {

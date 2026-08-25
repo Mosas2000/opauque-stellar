@@ -32,11 +32,10 @@ npm run update:artifacts
 Frontend `npm run build` runs `prepare:frontend` automatically (build scanner, fetch circuits,
 verify scanner runtime artifacts).
 
-`cryptography_bg.wasm` can differ at the byte level across approved Rust/wasm-pack build
-hosts while preserving the same JS glue hash. Keep the canonical `sha256` plus any
-reviewed host-specific values in `sha256Alternates`. Frontend prebuilds allow this WASM
-variant because they build scanner from source on the deploy host; strict scanner checks
-without `--allow-scanner-wasm-variant` still fail for unknown hashes.
+`cryptography_bg.wasm` is pinned to a single SHA-256 hash. The scanner build is
+byte-reproducible when using the pinned Rust toolchain (`scanner/rust-toolchain.toml`)
+with `wasm-pack --mode no-install`. CI enforces the exact hash via both manifest
+verification and a dedicated byte-stability rebuild check.
 
 ## Retrieval from GitHub releases
 

@@ -94,7 +94,7 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Install Rust stable
+      - name: Install Rust stable (pinned via scanner/rust-toolchain.toml)
         uses: dtolnay/rust-toolchain@stable
         with:
           targets: wasm32-unknown-unknown
@@ -122,6 +122,9 @@ jobs:
 
       - name: Verify artifact manifest
         run: npx tsx scripts/verify-artifact-manifest.ts --scanner --strict
+
+      - name: Byte-stability check (rebuild + compare hash)
+        run: npx tsx scripts/check-scanner-byte-stability.ts
 
   # ── SDK: Node 20 ────────────────────────────────────────────────────
   sdk:

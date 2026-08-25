@@ -2,16 +2,16 @@
 /**
  * Byte-stability check for scanner WASM rebuilds.
  *
- * Rebuilds the scanner WASM, computes its SHA-256, and compares it against
- * the pinned hash in artifacts/manifest.json. Reports identical or differing
- * with hashes; if different, explains the manifest update procedure.
+ * Rebuilds the scanner WASM using the pinned toolchain (scanner/rust-toolchain.toml),
+ * computes its SHA-256, and compares it against the single pinned hash in
+ * artifacts/manifest.json. The build must be byte-identical — no alternates
+ * are accepted.
  *
  * Usage:
  *   npx tsx scripts/check-scanner-byte-stability.ts
- *   npm run check:scanner-stability
  */
 
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync } from "node:fs";
 import { spawnSync } from "node:child_process";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -42,10 +42,12 @@ function run(label, cmd, args, opts = {}) {
 function main() {
   console.log("=== Scanner WASM Byte-Stability Check ===\n");
 
-  // Step 1: Rebuild the scanner
+  // Step 1: Rebuild the scanner using the pinned toolchain.
+  // --mode no-install prevents wasm-pack from overriding the
+  // Rust version pinned in scanner/rust-toolchain.toml.
   const wasmPack = process.env.WASM_PACK ?? "wasm-pack";
-  const buildArgs = ["build", "--target", "web", "--out-dir", OUT];
-  run(`Rebuilding scanner WASM`, wasmPack, buildArgs, { cwd: SCANNER });
+  const buildArgs = ["build", "--target", "web", "--out-dir", OUT, "--mode", "no-install"];
+  run(`Rebuilding scanner WASM (pinned toolchain)`, wasmPack, buildArgs, { cwd: SCANNER });
 
   // Step 2: Load manifest
   const manifest = loadManifest();
@@ -67,37 +69,28 @@ function main() {
 
   // Step 3: Compute actual hash
   const actualHash = sha256File(wasmPath);
-  const allowedHashes = [expectedHash, ...(wasmEntry.sha256Alternates ?? [])];
 
-  // Step 4: Compare
+  // Step 4: Compare against the single pinned hash
   console.log(`\n--- Results ---`);
   console.log(`File:              ${wasmEntry.path}`);
-  console.log(`Manifest SHA-256:  ${expectedHash}`);
+  console.log(`Pinned SHA-256:    ${expectedHash}`);
   console.log(`Built SHA-256:     ${actualHash}`);
 
-  if (allowedHashes.includes(actualHash)) {
+  if (actualHash === expectedHash) {
     console.log(`\n✅ IDENTICAL — Built artifact matches the pinned manifest hash.`);
     console.log(`   Hash: ${actualHash}`);
     process.exit(0);
   }
 
-  // Check if it matches any alternate
-  const matchAlt = wasmEntry.sha256Alternates?.find((h) => h === actualHash);
-  if (matchAlt) {
-    console.log(`\n✅ IDENTICAL — Built artifact matches an alternate pinned hash.`);
-    console.log(`   Hash: ${actualHash}`);
-    process.exit(0);
-  }
-
   console.log(`\n❌ DIFFERENT — Built artifact does NOT match the pinned manifest hash.`);
-  console.log(`\nManifest expected: ${expectedHash}`);
-  console.log(`Built actual:      ${actualHash}`);
-  if (wasmEntry.sha256Alternates?.length > 0) {
-    console.log(`Alternates tried:  ${wasmEntry.sha256Alternates.join(", ")}`);
-  }
+  console.log(`\nPinned hash: ${expectedHash}`);
+  console.log(`Built hash:  ${actualHash}`);
+  console.log(`\nThe scanner WASM must be byte-reproducible from the pinned toolchain.`);
+  console.log(`Ensure you are using: rustup run 1.94.1 (via rust-toolchain.toml)`);
+  console.log(`and wasm-pack --mode no-install.`);
 
   console.log(`\n--- Manifest Update Procedure ---`);
-  console.log(`To update the manifest with the new hash, run:`);
+  console.log(`If the toolchain was intentionally upgraded, run:`);
   console.log(`\n  npm run update:artifacts\n`);
   console.log(`This will update artifacts/manifest.json with the current artifact hashes.`);
   console.log(`After updating, verify with: npm run verify:artifacts -- --scanner`);
