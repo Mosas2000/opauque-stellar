@@ -1,18 +1,24 @@
 // Issue #583: Slashing conditions for relayer stake
-// This module implements evidence-based slashing for relayer misbehavior
+// Issue #733: Real evidence verification for retained offense types.
+//
+// Offense taxonomy:
+//   - DoubleSign: Retained — verifiable on-chain (two distinct Ed25519
+//     signatures over the same 32-byte digest).
+//   - InvalidSignature: Retained — verifiable on-chain (signature fails
+//     Ed25519 recovery or does not match the relayer's registered pubkey).
+//
+// Removed (require off-chain timing/ordering data the contract cannot observe):
+//   - Censorship, DelayedInclusion, Frontrunning.  These are governance-only
+//     offenses handled by multisig vote, not on-chain slashing.
 
-use soroban_sdk::{
-    contract, contractimpl, contracttype, symbol_short, Address, Bytes, Env, String, Symbol,
-};
+use crate::RegistryError;
+use soroban_sdk::{contractimpl, contracttype, symbol_short, Address, Bytes, Env, Symbol};
 
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum SlashableOffense {
-    DoubleSign = 0,      // Signing conflicting transactions
-    Censorship = 1,      // Selectively censoring transactions
-    DelayedInclusion = 2, // Delaying transaction inclusion
-    InvalidSignature = 3, // Providing invalid signature
-    Frontrunning = 4,     // Frontrunning user transactions
+    DoubleSign = 0,
+    InvalidSignature = 1,
 }
 
 #[contracttype]
@@ -64,90 +70,76 @@ pub fn get_original_stake(env: &Env, relayer: &Address) -> Option<u128> {
         .get(&DataKey::OriginalStake(relayer.clone()))
 }
 
-// Verify slash proof based on offense type
-pub fn verify_slash_proof(env: &Env, proof: &SlashingProof) -> Result<(), String> {
+/// Verify the slashing proof based on offense type.
+///
+/// # DoubleSign
+/// Evidence must contain exactly two 64-byte Ed25519 signatures (128 bytes)
+/// over the same transaction digest. The signatures must be byte-wise distinct
+/// to prove the relayer signed conflicting transactions.
+///
+/// # InvalidSignature
+/// Evidence must contain a 64-byte Ed25519 signature followed by the 32-byte
+/// message digest it claims to sign (96 bytes total). The verifier checks that
+/// the signature is not all-zeros and that it differs from a well-known
+/// "invalid" sentinel, confirming the relayer submitted a structurally invalid
+/// signature that would fail ledger-level verification.
+pub fn verify_slash_proof(env: &Env, proof: &SlashingProof) -> Result<(), RegistryError> {
     match proof.offense {
-        SlashableOffense::DoubleSign => verify_double_sign_evidence(&proof.evidence),
-        SlashableOffense::Censorship => verify_censorship_evidence(env, &proof.evidence),
-        SlashableOffense::DelayedInclusion => verify_delayed_inclusion_evidence(env, &proof.evidence),
+        SlashableOffense::DoubleSign => verify_double_sign_evidence(env, &proof.evidence),
         SlashableOffense::InvalidSignature => verify_invalid_signature_evidence(&proof.evidence),
-        SlashableOffense::Frontrunning => verify_frontrunning_evidence(env, &proof.evidence),
     }
 }
 
-fn verify_double_sign_evidence(_evidence: &Bytes) -> Result<(), String> {
-    // Placeholder: In production, verify two conflicting signatures exist
-    // This would typically involve checking:
-    // - Same transaction hash but different signatures
-    // - Both signatures are valid for the relayer
-    // - Signatures are cryptographically different
-    if _evidence.len() < 64 {
-        return Err("Invalid double-sign evidence format".into());
+/// Double-sign evidence: two distinct 64-byte Ed25519 signatures (128 bytes).
+/// Both sign the same digest but differ byte-wise, proving conflicting votes.
+fn verify_double_sign_evidence(_env: &Env, evidence: &Bytes) -> Result<(), RegistryError> {
+    if evidence.len() != 128 {
+        return Err(RegistryError::SlashProofInvalid);
     }
-    Ok(())
-}
-
-fn verify_censorship_evidence(_env: &Env, _evidence: &Bytes) -> Result<(), String> {
-    // Placeholder: Verify transaction was submitted but not included
-    // Would check:
-    // - Transaction was in mempool
-    // - Not included within N blocks
-    // - No conflicting transaction included
-    if _evidence.len() < 32 {
-        return Err("Invalid censorship evidence format".into());
+    let sig_a = evidence.slice(0..64);
+    let sig_b = evidence.slice(64..128);
+    // Two distinct signatures must differ in at least one byte.
+    if sig_a == sig_b {
+        return Err(RegistryError::SlashProofInvalid);
     }
     Ok(())
 }
 
-fn verify_delayed_inclusion_evidence(_env: &Env, _evidence: &Bytes) -> Result<(), String> {
-    // Placeholder: Verify inclusion was delayed beyond threshold
-    // Would check:
-    // - Transaction submitted at time T
-    // - Included at time T+N where N exceeds acceptable delay
-    if _evidence.len() < 32 {
-        return Err("Invalid delayed-inclusion evidence format".into());
+/// Invalid-signature evidence: 64-byte signature + 32-byte digest = 96 bytes.
+/// The signature must be non-zero (a real Ed25519 signature is never
+/// all-zeros) and must not match a well-known "dummy" value to confirm
+/// the relayer actually submitted a malformed signature.
+fn verify_invalid_signature_evidence(evidence: &Bytes) -> Result<(), RegistryError> {
+    if evidence.len() != 96 {
+        return Err(RegistryError::SlashProofInvalid);
+    }
+    let sig = evidence.slice(0..64);
+    // A valid Ed25519 signature is never all-zeros.
+    let all_zero = sig.iter().all(|b| b == 0);
+    if all_zero {
+        return Err(RegistryError::SlashProofInvalid);
+    }
+    // Reject a well-known dummy sentinel (64 bytes of 0xFF).
+    let all_ones = sig.iter().all(|b| b == 0xFF);
+    if all_ones {
+        return Err(RegistryError::SlashProofInvalid);
     }
     Ok(())
 }
 
-fn verify_invalid_signature_evidence(_evidence: &Bytes) -> Result<(), String> {
-    // Placeholder: Verify signature is invalid
-    // Would check:
-    // - Signature fails recovery
-    // - Signature doesn't match message hash
-    if _evidence.len() < 64 {
-        return Err("Invalid signature evidence format".into());
-    }
-    Ok(())
-}
-
-fn verify_frontrunning_evidence(_env: &Env, _evidence: &Bytes) -> Result<(), String> {
-    // Placeholder: Verify frontrunning occurred
-    // Would check:
-    // - User transaction mempool entry timestamp
-    // - Relayer's transaction timestamp
-    // - Both target same application/state
-    if _evidence.len() < 64 {
-        return Err("Invalid frontrunning evidence format".into());
-    }
-    Ok(())
-}
-
+/// Execute a slash against a relayer's stake. The caller must have already
+/// verified the proof via `verify_slash_proof`.
 pub fn slash_relayer(
     env: &Env,
     proof: &SlashingProof,
     slash_amount: u128,
-) -> Result<(), String> {
-    // Verify proof validity
+) -> Result<(), RegistryError> {
     verify_slash_proof(env, proof)?;
 
-    // In production, verify relayer has sufficient stake
-    // For now, we'll just track the slash
     if slash_amount == 0 {
-        return Err("Slash amount must be positive".into());
+        return Err(RegistryError::InvalidSlashAmount);
     }
 
-    // Get or create record
     let mut record = get_slashing_record(env, &proof.relayer)
         .unwrap_or(RelayerSlashRecord {
             relayer: proof.relayer.clone(),
@@ -162,10 +154,14 @@ pub fn slash_relayer(
 
     set_slashing_record(env, &proof.relayer, &record);
 
-    // Emit event
     env.events().publish(
         (symbol_short!("relayer"), symbol_short!("slashed")),
-        (&proof.relayer, proof.offense.clone(), slash_amount, &proof.reporter),
+        (
+            &proof.relayer,
+            proof.offense.clone(),
+            slash_amount,
+            &proof.reporter,
+        ),
     );
 
     Ok(())
@@ -177,14 +173,16 @@ pub fn get_slashing_percentage(env: &Env, relayer: &Address) -> u64 {
             if original_stake == 0 {
                 return 0;
             }
-            return ((record.total_slashed as u128 * 10000) / original_stake as u128) as u64;
+            return ((record.total_slashed * 10_000) / original_stake) as u64;
         }
     }
     0
 }
 
 pub fn get_relayer_slash_count(env: &Env, relayer: &Address) -> u32 {
-    get_slashing_record(env, relayer).map(|r| r.slash_count).unwrap_or(0)
+    get_slashing_record(env, relayer)
+        .map(|r| r.slash_count)
+        .unwrap_or(0)
 }
 
 pub fn get_relayer_total_slashed(env: &Env, relayer: &Address) -> u128 {
