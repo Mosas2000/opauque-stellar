@@ -27,7 +27,8 @@
     "publish:root": "tsx scripts/publish-reputation-root.ts",
     "verify:deployment": "tsx ../scripts/verify-deployment-manifest.ts",
     "smoke:pool": "tsx scripts/smoke-pool.ts",
-    "smoke:pool:relayer": "tsx scripts/smoke-relayed-pool.ts"
+    "smoke:pool:relayer": "tsx scripts/smoke-relayed-pool.ts",
+    "test:a11y": "npx playwright test e2e/a11y.spec.ts --project=chromium"
   },
   "dependencies": {
     "@noble/curves": "1.9.7",

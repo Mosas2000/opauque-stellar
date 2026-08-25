@@ -90,6 +90,9 @@ PUBLISHER_HTTP_HOST=127.0.0.1
 PUBLISHER_HTTP_PORT=8790
 PUBLISHER_CORS_ORIGIN=http://localhost:5173
 PUBLISHER_DATA_DIR=/var/lib/opaque-reputation-publisher
+PUBLISHER_SUBMIT_TOKENS=<random-token-per-holder-or-service>
+PUBLISHER_OPERATOR_TOKENS=<random-token-per-operator>
+PUBLISHER_TRUSTED_PROXIES=127.0.0.1
 ```
 
 Variables:
@@ -103,10 +106,13 @@ Variables:
 | `PUBLISHER_INTERVAL_MS` | `15000` | Loop interval for continuous publishing. |
 | `PUBLISHER_HTTP_HOST` | `127.0.0.1` | HTTP API bind host. |
 | `PUBLISHER_HTTP_PORT` | `8790` | HTTP API port. |
-| `PUBLISHER_CORS_ORIGIN` | `*` | Browser origin allowed to submit leaves/fetch paths. |
+| `PUBLISHER_CORS_ORIGIN` | none (cross-origin disabled) | Browser origin allowed to submit leaves/fetch paths. Must be set explicitly; there is no wildcard default. |
 | `PUBLISHER_DATA_DIR` | `publisher/data` | Durable inbox/state/root manifest directory. |
 | `PUBLISHER_MAX_INBOX` | `10000` | Maximum inbox queue size before backpressure is applied. |
 | `PUBLISHER_MAX_BODY_BYTES` | `32768` | Streaming request-body size cap for `POST /v1/reputation/leaves`; oversized bodies are aborted mid-stream with `413 PAYLOAD_TOO_LARGE`. |
+| `PUBLISHER_SUBMIT_TOKENS` | none (submission disabled) | Comma-separated bearer tokens allowed to `POST /v1/reputation/leaves`. Generate with e.g. `openssl rand -hex 32` and hand out per holder/service. |
+| `PUBLISHER_OPERATOR_TOKENS` | none (reads disabled) | Comma-separated bearer tokens allowed to read `GET /v1/reputation/quarantine` and `GET /metrics`. |
+| `PUBLISHER_TRUSTED_PROXIES` | none | Comma-separated socket addresses of reverse proxies allowed to set `X-Forwarded-For`. Without it, rate limiting always uses the raw socket address. |
 
 ## Run The HTTP API
 

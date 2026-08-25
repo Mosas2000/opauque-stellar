@@ -18,6 +18,7 @@ import {
 } from "./rate-limit.ts";
 
 import type { PayoutReconciler } from "./reconciler.ts";
+import { loadTrustedProxiesFromEnv, resolveClientSource } from "./trusted-proxy.ts";
 
 /** Stable error code returned when a request body exceeds the configured limit. */
 export const PAYLOAD_TOO_LARGE_CODE = "PAYLOAD_TOO_LARGE";
@@ -94,11 +95,10 @@ export function createRelayerHttpServer(
   // flood spread across endpoints); `limiter` is a tight cap on state-mutating routes.
   const limiter = rateLimiter ?? createRateLimiterFromEnv();
   const globalLimiter = globalRateLimiter ?? createGlobalRateLimiterFromEnv();
+  const trustedProxies = loadTrustedProxiesFromEnv();
 
   function extractSource(req: IncomingMessage): string {
-    const forwarded = req.headers["x-forwarded-for"];
-    if (typeof forwarded === "string") return forwarded.split(",")[0].trim();
-    return req.socket.remoteAddress ?? "unknown";
+    return resolveClientSource(req, trustedProxies);
   }
 
   function applyRateLimitHeaders(res: ServerResponse, rl: RateLimitResult): void {
