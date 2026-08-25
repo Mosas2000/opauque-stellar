@@ -18,7 +18,15 @@ const SCANNER_VERSION: &str = env!("CARGO_PKG_VERSION");
 
 /// Build hash — set at build time via env var, or defaults to "unknown".
 /// Pass `SCANNER_BUILD_HASH=<sha256>` at build time for deterministic builds.
-const SCANNER_BUILD_HASH: &str = option_env!("SCANNER_BUILD_HASH").unwrap_or("unknown");
+///
+/// `Option::unwrap_or` is not a `const fn` on stable Rust, so the previous
+/// `option_env!(..).unwrap_or("unknown")` failed to compile on every current
+/// stable toolchain (confirmed failing in this repo's own "Scanner WASM" CI
+/// job). `match` is const-evaluable and produces the identical value.
+const SCANNER_BUILD_HASH: &str = match option_env!("SCANNER_BUILD_HASH") {
+    Some(hash) => hash,
+    None => "unknown",
+};
 
 mod scanner;
 pub mod attestation;
