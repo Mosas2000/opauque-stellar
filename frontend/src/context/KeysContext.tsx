@@ -7,6 +7,7 @@ import {
   type ReactNode,
 } from "react";
 import type { Hex } from "../lib/stealth";
+import { debugLog } from "../lib/debugLog";
 import {
   deriveKeysFromSignature,
   keysToStealthMetaAddress,
@@ -44,7 +45,7 @@ export function KeysProvider({ children }: { children: ReactNode }) {
   });
 
   const setFromSignature = useCallback((signatureHex: Hex) => {
-    console.log("🔑 [Opaque] Deriving keys from signature…");
+    debugLog("🔑 [Opaque] Deriving keys from signature…");
     const { viewingKey, spendingKey } = deriveKeysFromSignature(signatureHex);
     const { metaAddress, S: spendPubKey } = keysToStealthMetaAddress(viewingKey, spendingKey);
     const metaHex = stealthMetaAddressToHex(metaAddress);
@@ -57,11 +58,11 @@ export function KeysProvider({ children }: { children: ReactNode }) {
         spendPubKey: spendPubKey,
       },
     });
-    console.log("🔑 [Opaque] Keys derived, setup complete", { metaAddressHex: metaHex.slice(0, 18) + "…" });
+    debugLog("🔑 [Opaque] Keys derived, setup complete", { metaAddressHex: metaHex.slice(0, 18) + "…" });
   }, []);
 
   const clearKeys = useCallback(() => {
-    console.log("🔑 [Opaque] Clearing keys (logout)");
+    debugLog("🔑 [Opaque] Clearing keys (logout)");
     clearSignatureSession();
     setState({ stealthMetaAddressHex: null, isSetup: false, masterKeys: null });
   }, []);

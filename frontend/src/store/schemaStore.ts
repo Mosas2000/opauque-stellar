@@ -4,16 +4,14 @@
  * Zustand store for caching discovered schemas and V2 attestations locally.
  * Schemas are fetched from the schema_registry program via RPC.
  * V2 discovered traits come from the WASM scanner.
+ * Data is encrypted at rest using passphrase-derived AES-256-GCM.
  */
 
 import { create } from "zustand";
-import { persist, createJSONStorage } from "zustand/middleware";
+import { createEncryptedStorage } from "../lib/encryptedStorage";
+import { getEncryptionPassphrase } from "../lib/getEncryptionPassphrase";
 import type { SchemaV2 } from "../lib/schema";
 import type { AttestationV2 } from "../lib/attestationV2";
-
-// =============================================================================
-// V2 discovered trait (from scanner WASM)
-// =============================================================================
 
 export interface V2DiscoveredTrait {
   stealthAddress: string;
@@ -77,6 +75,13 @@ interface SchemaStoreState {
   clearTraits: () => void;
 }
 
+const SCHEMA_STORAGE_KEY = "opaque-schema-store-v2";
+
+const schemaStorage = createEncryptedStorage<SchemaStoreState>(
+  SCHEMA_STORAGE_KEY,
+  getEncryptionPassphrase,
+);
+
 export const useSchemaStore = create<SchemaStoreState>()(
   persist(
     (set) => ({
@@ -95,7 +100,7 @@ export const useSchemaStore = create<SchemaStoreState>()(
       addSchema: (schema) =>
         set((state) => ({
           schemas: { ...state.schemas, [schema.schemaId]: schema },
-        })),
+        }),
 
       mergeSchemas: (schemas) =>
         set((state) => {
@@ -117,7 +122,7 @@ export const useSchemaStore = create<SchemaStoreState>()(
             ...state.discoveredTraits,
             [trait.attestationUid]: trait,
           },
-        })),
+        }),
 
       markTraitInvalid: (attestationUid) =>
         set((state) => {
@@ -142,13 +147,11 @@ export const useSchemaStore = create<SchemaStoreState>()(
       clearTraits: () => set({ discoveredTraits: {} }),
     }),
     {
-      name: "opaque-schema-store-v2",
-      storage: createJSONStorage(() => localStorage),
-      partialize: (state) => ({
-        schemas: state.schemas,
-        discoveredTraits: state.discoveredTraits,
-        lastScannedSlot: state.lastScannedSlot,
-      }),
+      name: SCHEMA_STORAGE_KEY,
+      storage: schemaStorage,
+      onRehydrateStorage: () => (_state, _err) => {
+        /* hydrated */
+      },
     }
   )
 );

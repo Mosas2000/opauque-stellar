@@ -7,6 +7,7 @@
  */
 
 import { useState, useCallback } from "react";
+import { debugLog, debugWarn } from "../lib/debugLog";
 import { useWallet } from "../hooks/useWallet";
 const toHex = (n: bigint | number, opts?: { size?: number }) => {
   const hex = BigInt(n).toString(16);
@@ -107,12 +108,12 @@ export function ProveTraitModal({ trait, onClose }: ProveTraitModalProps) {
       if (rawRootSignal != null) {
         try {
           const merkleRootBytes32 = toHex(BigInt(rawRootSignal), { size: 32 });
-          console.log("🌲 [Opaque] Merkle root ready", {
+          debugLog("🌲 [Opaque] Merkle root ready", {
             rawSignal: rawRootSignal,
             bytes32Hex: merkleRootBytes32,
           });
         } catch (rootErr) {
-          console.warn("🌲 [Opaque] Failed to convert Merkle root to bytes32", {
+          debugWarn("🌲 [Opaque] Failed to convert Merkle root to bytes32", {
             rawSignal: rawRootSignal,
             error: rootErr,
           });

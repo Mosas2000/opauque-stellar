@@ -1,3 +1,4 @@
+import { debugLog } from "../lib/debugLog";
 import { useState } from "react";
 import { useWallet } from "../hooks/useWallet";
 import { useKeys } from "../context/KeysContext";
@@ -13,7 +14,7 @@ export function SetupView() {
 
   const handleSign = async () => {
     setError(null);
-    console.log("[Opaque] Setup: requesting signature…");
+    debugLog("[Opaque] Setup: requesting signature…");
     setIsSigning(true);
     try {
       if (!connected) {
@@ -28,12 +29,12 @@ export function SetupView() {
       if (!pk || !sign) {
         throw new Error("Connect Freighter to continue.");
       }
-      console.log("[Opaque] Setup: wallet address", { address: pk.slice(0, 14) + "…" });
+      debugLog("[Opaque] Setup: wallet address", { address: pk.slice(0, 10) + "……" });
       const encoded = new TextEncoder().encode(SETUP_MESSAGE);
       const sigBytes = await sign(encoded);
       const sigHex = `0x${Array.from(sigBytes).map(b => b.toString(16).padStart(2, "0")).join("")}` as `0x${string}`;
       setFromSignature(sigHex);
-      console.log("[Opaque] Setup: signature received");
+      debugLog("[Opaque] Setup: signature received");
     } catch (e) {
       const msg = e instanceof Error ? e.message : "Failed to sign";
       console.error("[Opaque] Setup failed", { error: msg });
