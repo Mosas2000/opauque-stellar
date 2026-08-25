@@ -29,6 +29,9 @@ use soroban_sdk::{
     IntoVal, Symbol, Vec, U256,
 };
 
+mod capacity;
+mod withdrawal;
+
 /// Default root validity window (~1 day at 5 s/ledger). Overridable via set_root_expiry.
 const DEFAULT_ROOT_EXPIRY_LEDGERS: u32 = 17_280;
 const MAX_ROOT_HISTORY: u32 = 100;
@@ -116,6 +119,8 @@ pub enum PoolError {
     DepositsPaused = 11,
     WithdrawalsPaused = 12,
     NoPauseRequestPending = 13,
+    TreeAtCapacity = 14,
+    WithdrawalBelowMinimum = 15,
 }
 
 // Which root namespace an entry belongs to.
@@ -235,7 +240,7 @@ impl PrivacyPool {
         env.storage().instance().set(
             &Symbol::new(&env, "config"),
             &PoolConfig {
-                admin,
+                admin: admin.clone(),
                 groth16_verifier,
                 native_sac,
                 scope,
@@ -257,6 +262,10 @@ impl PrivacyPool {
         env.storage()
             .instance()
             .set(&Symbol::new(&env, "tot_wd"), &0i128);
+        capacity::initialize_capacity_tracking(&env);
+        // Start with no minimum (0) for backwards compatibility; admin raises
+        // the bar via set_withdrawal_minimum after deployment.
+        withdrawal::initialize_withdrawal_config(&env, admin.clone(), 0);
         Ok(())
     }
 
@@ -295,6 +304,9 @@ impl PrivacyPool {
         if index != expected_index {
             return Err(PoolError::IndexMismatch);
         }
+        if capacity::is_tree_at_capacity(&env) {
+            return Err(PoolError::TreeAtCapacity);
+        }
 
         // Pull funds into the pool's own SAC balance.
         let pool = env.current_contract_address();
@@ -307,6 +319,7 @@ impl PrivacyPool {
         env.storage()
             .instance()
             .set(&Symbol::new(&env, "dep_count"), &(index + 1));
+        capacity::increment_commitment_count(&env);
         let total: i128 = env
             .storage()
             .instance()
@@ -556,6 +569,9 @@ impl PrivacyPool {
         if withdrawn_value <= 0 || fee < 0 || fee > withdrawn_value {
             return Err(PoolError::BadAmount);
         }
+        if !withdrawal::validate_withdrawal_amount(&env, withdrawn_value as u128) {
+            return Err(PoolError::WithdrawalBelowMinimum);
+        }
 
         // Roots must be known and unexpired.
         Self::require_fresh_root(
@@ -728,6 +744,31 @@ impl PrivacyPool {
                 .get(&Symbol::new(&env, "tot_wd"))
                 .unwrap_or(0),
         )
+    }
+
+    /// Return the current minimum withdrawal amount.
+    pub fn get_withdrawal_minimum(env: Env) -> u128 {
+        withdrawal::get_minimum_withdrawal_amount(&env)
+    }
+
+    /// Update the minimum withdrawal threshold (admin only).
+    pub fn set_withdrawal_minimum(
+        env: Env,
+        admin: Address,
+        new_minimum: u128,
+    ) -> Result<(), PoolError> {
+        admin.require_auth();
+        let config = cfg(&env);
+        if config.admin != admin {
+            return Err(PoolError::Unauthorized);
+        }
+        withdrawal::update_minimum_withdrawal_amount(&env, admin, new_minimum);
+        Ok(())
+    }
+
+    /// Return the current commitment tree capacity info.
+    pub fn get_tree_capacity_info(env: Env) -> capacity::TreeCapacityInfo {
+        capacity::get_tree_capacity(&env)
     }
 }
 

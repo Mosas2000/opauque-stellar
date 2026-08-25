@@ -1341,3 +1341,123 @@ fn deposits_pause_does_not_affect_withdrawals_and_vice_versa() {
         .deposit(&depositor, &100i128, &b32(&h.env, 0xC2), &2u64);
     assert_eq!(idx, 2);
 }
+
+// ── Capacity guard tests (#730) ───────────────────────────────────────────────
+
+#[test]
+fn capacity_guard_rejects_deposit_when_tree_full() {
+    let h = setup();
+    let depositor = Address::generate(&h.env);
+    fund(&h, &depositor, 1_000_000_000);
+
+    // Exhaust the capacity counter via the pool's own contract context.
+    h.env.as_contract(&h.pool_addr, || {
+        let mut cap = capacity::get_tree_capacity(&h.env);
+        cap.current_count = capacity::MAX_COMMITMENTS;
+        h.env
+            .storage()
+            .instance()
+            .set(&capacity::DataKey::TreeCapacity, &cap);
+    });
+
+    let err = h
+        .pool
+        .try_deposit(&depositor, &1i128, &b32(&h.env, 0x01), &0u64);
+    assert!(err.is_err());
+}
+
+#[test]
+fn capacity_guard_allows_deposit_below_limit() {
+    let h = setup();
+    let depositor = Address::generate(&h.env);
+    fund(&h, &depositor, 1_000_000);
+
+    let idx = h
+        .pool
+        .deposit(&depositor, &1_000_000i128, &b32(&h.env, 0x01), &0u64);
+    assert_eq!(idx, 0);
+}
+
+// ── Minimum withdrawal tests (#731) ──────────────────────────────────────────
+
+#[test]
+fn withdrawal_below_minimum_rejected() {
+    let h = setup();
+    let depositor = Address::generate(&h.env);
+    fund(&h, &depositor, 1_000_000);
+
+    h.pool
+        .deposit(&depositor, &1_000_000i128, &b32(&h.env, 0x01), &0u64);
+
+    // Raise the minimum withdrawal above the amount we'll try to withdraw.
+    h.pool.set_withdrawal_minimum(&h.admin, &1_000_001);
+
+    let (sr, ar) = publish_roots(&h);
+    let recipient = Address::generate(&h.env);
+    let relayer = Address::generate(&h.env);
+    let (pa, pb, pc) = proof(&h.env);
+
+    // Try withdrawing 500_000 — below the 1_000_001 minimum.
+    let err = h.pool.try_withdraw(
+        &pa,
+        &pb,
+        &pc,
+        &500_000i128,
+        &sr,
+        &ar,
+        &b32(&h.env, 0x9A),
+        &b32(&h.env, 0xCE),
+        &recipient,
+        &0i128,
+        &relayer,
+    );
+    assert!(err.is_err());
+}
+
+#[test]
+fn withdrawal_at_minimum_succeeds() {
+    let h = setup();
+    let depositor = Address::generate(&h.env);
+    fund(&h, &depositor, 2_000_000);
+
+    h.pool
+        .deposit(&depositor, &2_000_000i128, &b32(&h.env, 0x01), &0u64);
+
+    // Set minimum to 500_000, then withdraw exactly that.
+    h.pool.set_withdrawal_minimum(&h.admin, &500_000);
+
+    let (sr, ar) = publish_roots(&h);
+    let recipient = Address::generate(&h.env);
+    let relayer = Address::generate(&h.env);
+    let (pa, pb, pc) = proof(&h.env);
+
+    h.pool.withdraw(
+        &pa,
+        &pb,
+        &pc,
+        &500_000i128,
+        &sr,
+        &ar,
+        &b32(&h.env, 0x9A),
+        &b32(&h.env, 0xCE),
+        &recipient,
+        &0i128,
+        &relayer,
+    );
+    assert_eq!(bal(&h, &recipient), 500_000);
+}
+
+#[test]
+fn admin_can_update_minimum_withdrawal() {
+    let h = setup();
+    h.pool.set_withdrawal_minimum(&h.admin, &5_000_000);
+    assert_eq!(h.pool.get_withdrawal_minimum(), 5_000_000);
+}
+
+#[test]
+#[should_panic(expected = "Error(Contract")]
+fn non_admin_cannot_update_minimum_withdrawal() {
+    let h = setup();
+    let rando = Address::generate(&h.env);
+    h.pool.set_withdrawal_minimum(&rando, &100);
+}

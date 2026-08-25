@@ -136,18 +136,9 @@ fn check_and_emit_capacity_alert(env: &Env, current_level: AlertLevel) {
     }
 }
 
-pub fn increment_commitment_count(env: &Env) -> Result<(), String> {
+pub fn increment_commitment_count(env: &Env) {
     let mut capacity = get_tree_capacity(env);
 
-    // Check if already at capacity
-    if capacity.current_count >= capacity.max_capacity {
-        return Err(format!(
-            "Tree at capacity: {} / {}",
-            capacity.current_count, capacity.max_capacity
-        ));
-    }
-
-    // Increment counter
     capacity.current_count += 1;
     capacity.last_updated = env.ledger().timestamp();
 
@@ -155,11 +146,8 @@ pub fn increment_commitment_count(env: &Env) -> Result<(), String> {
         .instance()
         .set(&DataKey::TreeCapacity, &capacity);
 
-    // Check and emit alert if capacity threshold crossed
     let alert_level = get_capacity_alert_level(env);
     check_and_emit_capacity_alert(env, alert_level);
-
-    Ok(())
 }
 
 pub fn get_remaining_capacity(env: &Env) -> u64 {
@@ -172,10 +160,7 @@ pub fn get_capacity_status(env: &Env) -> TreeCapacityInfo {
 }
 
 // Administrative function to reset capacity (emergency only)
-pub fn reset_capacity_counter(env: &Env, caller: &Address) -> Result<(), String> {
-    // In production, verify caller is authorized admin
-    // For now, just provide the mechanism
-
+pub fn reset_capacity_counter(env: &Env, caller: &Address) {
     let mut capacity = get_tree_capacity(env);
     capacity.current_count = 0;
     capacity.last_updated = env.ledger().timestamp();
@@ -188,8 +173,6 @@ pub fn reset_capacity_counter(env: &Env, caller: &Address) -> Result<(), String>
         (symbol_short!("pool"), symbol_short!("cap_reset")),
         (caller,),
     );
-
-    Ok(())
 }
 
 #[cfg(test)]
