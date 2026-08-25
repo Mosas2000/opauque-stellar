@@ -124,6 +124,38 @@ Opaque is live on Stellar testnet for the MVP path.
 > [!WARNING]
 > This is experimental software on Stellar testnet. Do not use real funds. Mainnet is blocked until the security register is signed off. Read [DISCLAIMER.md](DISCLAIMER.md) first.
 
+## Mainnet readiness
+
+Opaque is **not deployed on Stellar mainnet**. The current release targets testnet only.
+
+### What is required before mainnet
+
+| Requirement | Status | Notes |
+| --- | --- | --- |
+| Third-party security audit | Pending | The privacy pool, Groth16 verifiers, and reputation contracts require an independent audit before any mainnet deployment. |
+| Circuit audit | Pending | The Groth16 withdrawal and reputation circuits (BN254 / alt_bn128) need an independent soundness and range-check audit. |
+| Trusted-setup verification | Complete | The ceremony transcripts are published and independently verifiable — see [TRUSTED_SETUP_VERIFICATION.md](docs/TRUSTED_SETUP_VERIFICATION.md). |
+| Key-management runbook | Complete | Admin key rotation, multisig migration, and compromise playbooks are documented in [KEY_MANAGEMENT_GUIDE.md](docs/KEY_MANAGEMENT_GUIDE.md). |
+| Capacity and withdrawal guards | Complete | Tree-capacity limits and minimum-withdrawal enforcement are wired into the pool contract. |
+| TTL archival monitoring | Complete | `scripts/check-ttl-expiry.ts` monitors persistent-storage TTL and alerts operators. |
+
+### Known limitations
+
+- **Off-chain state root:** The pool Merkle root is published off-chain by the ASP because on-chain Poseidon insertion exceeds Soroban's CPU budget. An on-chain custody invariant prevents a bad root from releasing unbacked funds, but the trust model is documented in [PRIVACY_GUARANTEES.md](docs/PRIVACY_GUARANTEES.md).
+- **ASP approve-all policy:** The testnet ASP approves every deposit. A production ASP should implement selective screening.
+- **Relayer is single-staked:** The demo relayer is a single operator. A production market needs multiple independent relayers.
+- **Browser key storage:** The wallet stores keys in IndexedDB. The threat model is in [GHOST_THREAT_MODEL.md](docs/GHOST_THREAT_MODEL.md).
+
+### How to verify official contract IDs
+
+All deployed contract addresses are listed in [deployments/v1/testnet.json](deployments/v1/testnet.json). To verify a contract on-chain:
+
+1. Open [stellar.expert](https://stellar.expert/explorer/testnet) and search for the contract address.
+2. Confirm the WASM hash matches the release artifact for the corresponding version.
+3. Cross-reference with the address in `deployments/v1/testnet.json`.
+
+Mainnet addresses will be published in `deployments/v1/mainnet.json` once the security register is signed off and deployment occurs.
+
 ## Honest trade-offs
 
 Privacy systems live or die by their assumptions, so here are Opaque's, stated plainly.
@@ -187,6 +219,8 @@ measured) are defined in [docs/testnet-slos.md](docs/testnet-slos.md); `npm run
 slo:report` compares current operations against them.
 
 ## Architecture
+
+See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for Mermaid diagrams covering on-chain/off-chain components, trust boundaries, and end-to-end protocol flows.
 
 | Path                                               | Purpose                                                                                                    |
 | -------------------------------------------------- | ---------------------------------------------------------------------------------------------------------- |
