@@ -9,9 +9,9 @@
  *                      prefers build wasm/R1CS so constraint checks use a matched pair
  *
  * Usage:
- *   node circuits/test/regression.mjs
- *   node circuits/test/regression.mjs --version v1
- *   node circuits/test/regression.mjs --compile --witness-only
+ *   npx tsx circuits/test/regression.ts
+ *   npx tsx circuits/test/regression.ts --version v1
+ *   npx tsx circuits/test/regression.ts --compile --witness-only
  *
  * Extended checks (all run automatically when artifacts are present):
  *   - Constraint count regression: reads R1CS and compares nConstraints against
