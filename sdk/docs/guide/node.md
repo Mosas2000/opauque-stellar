@@ -55,7 +55,7 @@ process.exit(0);
 
 ## Runnable example
 
-See [`examples/node-quickstart.mjs`](https://github.com/collinsadi/opauque-stellar/blob/main/sdk/examples/node-quickstart.mjs):
+See [`examples/node-quickstart.mjs`](https://github.com/collinsadi/opaque-stellar/blob/main/sdk/examples/node-quickstart.mjs):
 
 ```sh
 node examples/node-quickstart.mjs

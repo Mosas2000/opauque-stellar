@@ -7,9 +7,9 @@ export const ABUSE_POLICY_ROUTE = "/abuse-policy";
 
 export const ABUSE_POLICY_REPO_PATH = "docs/ABUSE_AND_SANCTIONS_POLICY.md";
 export const OPAQUE_SUPPORT_EMAIL = "support@opaque.cash";
-export const OPAQUE_REPO_ISSUES_URL = "https://github.com/collinsadi/opauque-stellar/issues";
+export const OPAQUE_REPO_ISSUES_URL = "https://github.com/collinsadi/opaque-stellar/issues";
 export const OPAQUE_REPO_SECURITY_ADVISORY_URL =
-  "https://github.com/collinsadi/opauque-stellar/security/advisories/new";
+  "https://github.com/collinsadi/opaque-stellar/security/advisories/new";
 
 export type ContactChannel = {
   label: string;

@@ -85,7 +85,7 @@ To minimize exclusion risk:
 
 ## Support
 
-- **Bug or contract issue?** → Report in [GitHub Issues](https://github.com/collinsadi/opauque-stellar/issues)
+- **Bug or contract issue?** → Report in [GitHub Issues](https://github.com/collinsadi/opaque-stellar/issues)
 - **Appeal status?** → Contact operator (see Option 2)
 - **How to withdraw via keys?** → [Stealth recovery guide](frontend/README.md#recovery)
 - **Questions about the protocol?** → Read [README.md](../README.md)

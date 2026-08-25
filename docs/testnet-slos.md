@@ -39,7 +39,7 @@ answers "were we within objective over the last week" — one invocation cannot 
 a p95 or a trailing-week availability figure by itself. Example hourly cron:
 
 ```bash
-0 * * * * cd /path/to/opauque-stellar && npx tsx scripts/slo-report.ts >> ops/slo/report.log 2>&1
+0 * * * * cd /path/to/opaque-stellar && npx tsx scripts/slo-report.ts >> ops/slo/report.log 2>&1
 ```
 
 ```bash

@@ -15,14 +15,14 @@
     "privacy-pool",
     "reputation"
   ],
-  "homepage": "https://github.com/collinsadi/opauque-stellar/tree/main/sdk#readme",
+  "homepage": "https://github.com/collinsadi/opaque-stellar/tree/main/sdk#readme",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/collinsadi/opauque-stellar.git",
+    "url": "git+https://github.com/collinsadi/opaque-stellar.git",
     "directory": "sdk"
   },
   "bugs": {
-    "url": "https://github.com/collinsadi/opauque-stellar/issues"
+    "url": "https://github.com/collinsadi/opaque-stellar/issues"
   },
   "publishConfig": {
     "access": "public"

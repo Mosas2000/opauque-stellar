@@ -1,6 +1,6 @@
 # Supply-Chain Policy
 
-> Tracking issue: [#486 — Add wasm-pack dependency vulnerability monitoring](https://github.com/collinsadi/opauque-stellar/issues/486)
+> Tracking issue: [#486 — Add wasm-pack dependency vulnerability monitoring](https://github.com/collinsadi/opaque-stellar/issues/486)
 >
 > Companion to [CONTRIBUTING.md § 12 (Dependency update policy)](../.github/CONTRIBUTING.md#12-dependency-update-policy).
 > Linked from the dependency policy and from the `dependency-audit.yml` scanner job.

@@ -1,6 +1,6 @@
 # Circuit Versioning and Verifier Migration Strategy
 
-> Tracking issue: [#596 — Add circuit versioning and verifier migration strategy](https://github.com/collinsadi/opauque-stellar/issues/596)
+> Tracking issue: [#596 — Add circuit versioning and verifier migration strategy](https://github.com/collinsadi/opaque-stellar/issues/596)
 
 Fixing a circuit bug or upgrading constraints requires new verifying keys.
 Without an explicit migration path, existing notes proven under old keys can

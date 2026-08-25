@@ -2,7 +2,8 @@ import JSZip from "jszip";
 import type { PoolNote } from "./poolNotes";
 
 export const BACKUP_FORMAT_VERSION = 2;
-export const BACKUP_SCHEMA_URI = "https://opaque.network/schemas/pool-notes-backup-v2.json";
+export const BACKUP_SCHEMA_URI =
+  "https://opaque.cash/schemas/pool-notes-backup-v2.json";
 export const KDF_ITERATIONS = 250_000;
 
 export interface VersionedNoteBackupEnvelope {
@@ -72,7 +73,10 @@ export async function computeSha256Hex(data: Uint8Array): Promise<string> {
     .join("");
 }
 
-async function deriveBackupKey(pin: string, salt: Uint8Array<ArrayBuffer>): Promise<CryptoKey> {
+async function deriveBackupKey(
+  pin: string,
+  salt: Uint8Array<ArrayBuffer>,
+): Promise<CryptoKey> {
   const material = await crypto.subtle.importKey(
     "raw",
     new TextEncoder().encode(pin),
@@ -123,7 +127,11 @@ export async function createVersionedNoteBackupEnvelope(opts: {
   };
 
   const plaintext = new TextEncoder().encode(JSON.stringify(payload, null, 2));
-  const encryptedBuf = await crypto.subtle.encrypt({ name: "AES-GCM", iv }, key, plaintext);
+  const encryptedBuf = await crypto.subtle.encrypt(
+    { name: "AES-GCM", iv },
+    key,
+    plaintext,
+  );
   const ciphertext = new Uint8Array(encryptedBuf);
   const integrityChecksum = await computeSha256Hex(ciphertext);
 
@@ -157,7 +165,8 @@ export async function buildEncryptedPoolNoteBackup(opts: {
   cluster: string;
   poolId?: string;
 }): Promise<Blob> {
-  const { envelope, ciphertext } = await createVersionedNoteBackupEnvelope(opts);
+  const { envelope, ciphertext } =
+    await createVersionedNoteBackupEnvelope(opts);
 
   const zip = new JSZip();
   zip.file("manifest.json", JSON.stringify(envelope, null, 2));
@@ -226,39 +235,57 @@ export async function importEncryptedPoolNoteBackup(
       const encFile = zip.file("pool-notes.json.enc");
 
       if (!manifestFile || !encFile) {
-        throw new CorruptedBackupError("Backup ZIP is missing manifest or encrypted notes payload.");
+        throw new CorruptedBackupError(
+          "Backup ZIP is missing manifest or encrypted notes payload.",
+        );
       }
 
       const manifestStr = await manifestFile.async("string");
-      envelope = JSON.parse(manifestStr) as Partial<VersionedNoteBackupEnvelope>;
+      envelope = JSON.parse(
+        manifestStr,
+      ) as Partial<VersionedNoteBackupEnvelope>;
       ciphertext = await encFile.async("uint8array");
     } catch (e) {
       if (e instanceof CorruptedBackupError) throw e;
-      throw new CorruptedBackupError("Failed to parse backup ZIP archive. File may be corrupted.");
+      throw new CorruptedBackupError(
+        "Failed to parse backup ZIP archive. File may be corrupted.",
+      );
     }
   }
 
   if (!envelope || !ciphertext) {
-    throw new CorruptedBackupError("Unable to locate encrypted payload in backup.");
+    throw new CorruptedBackupError(
+      "Unable to locate encrypted payload in backup.",
+    );
   }
 
   // Validate format version & envelope headers
-  const formatVersion = envelope.formatVersion ?? (envelope as { version?: number }).version ?? 1;
+  const formatVersion =
+    envelope.formatVersion ?? (envelope as { version?: number }).version ?? 1;
   if (typeof formatVersion !== "number" || formatVersion < 1) {
-    throw new CorruptedBackupError(`Unsupported backup format version: ${String(formatVersion)}`);
+    throw new CorruptedBackupError(
+      `Unsupported backup format version: ${String(formatVersion)}`,
+    );
   }
 
   // Integrity Check for V2+
   if (envelope.integrityChecksum) {
     const computedChecksum = await computeSha256Hex(ciphertext);
-    if (computedChecksum.toLowerCase() !== envelope.integrityChecksum.toLowerCase()) {
-      throw new CorruptedBackupError("Backup integrity check failed: payload checksum mismatch.");
+    if (
+      computedChecksum.toLowerCase() !==
+      envelope.integrityChecksum.toLowerCase()
+    ) {
+      throw new CorruptedBackupError(
+        "Backup integrity check failed: payload checksum mismatch.",
+      );
     }
   }
 
   // Decryption
   if (!envelope.salt || !envelope.iv) {
-    throw new CorruptedBackupError("Backup manifest is missing cryptographic salt or IV parameters.");
+    throw new CorruptedBackupError(
+      "Backup manifest is missing cryptographic salt or IV parameters.",
+    );
   }
 
   const salt = base64ToBytes(envelope.salt);
@@ -267,7 +294,11 @@ export async function importEncryptedPoolNoteBackup(
 
   let decryptedPlaintext: string;
   try {
-    const decryptedBuf = await crypto.subtle.decrypt({ name: "AES-GCM", iv }, key, ciphertext);
+    const decryptedBuf = await crypto.subtle.decrypt(
+      { name: "AES-GCM", iv },
+      key,
+      ciphertext,
+    );
     decryptedPlaintext = new TextDecoder().decode(decryptedBuf);
   } catch {
     throw new InvalidPasswordError("Invalid PIN or corrupted backup payload.");
@@ -281,7 +312,11 @@ export async function importEncryptedPoolNoteBackup(
   }
 
   // Migration & Schema Normalization
-  return migrateDecryptedNotes(rawPayload, formatVersion, envelope.cluster ?? "testnet");
+  return migrateDecryptedNotes(
+    rawPayload,
+    formatVersion,
+    envelope.cluster ?? "testnet",
+  );
 }
 
 /**
@@ -297,7 +332,11 @@ export function migrateDecryptedNotes(
   }
 
   const obj = payload as Record<string, unknown>;
-  const rawNotes = Array.isArray(obj.notes) ? obj.notes : Array.isArray(payload) ? payload : [];
+  const rawNotes = Array.isArray(obj.notes)
+    ? obj.notes
+    : Array.isArray(payload)
+      ? payload
+      : [];
 
   const migratedNotes: PoolNote[] = rawNotes.map((item, index) => {
     if (!item || typeof item !== "object") {
@@ -305,26 +344,34 @@ export function migrateDecryptedNotes(
     }
     const noteObj = item as Record<string, unknown>;
     if (!noteObj.nullifier || !noteObj.secret || !noteObj.value) {
-      throw new CorruptedBackupError(`Note at index ${index} is missing essential cryptographic parameters.`);
+      throw new CorruptedBackupError(
+        `Note at index ${index} is missing essential cryptographic parameters.`,
+      );
     }
 
     return {
-      cluster: typeof noteObj.cluster === "string" ? noteObj.cluster : fallbackCluster,
+      cluster:
+        typeof noteObj.cluster === "string" ? noteObj.cluster : fallbackCluster,
       poolId: typeof noteObj.poolId === "string" ? noteObj.poolId : "default",
       value: String(noteObj.value),
       scope: typeof noteObj.scope === "number" ? noteObj.scope : 0,
       leafIndex: typeof noteObj.leafIndex === "number" ? noteObj.leafIndex : 0,
       nullifier: String(noteObj.nullifier),
       secret: String(noteObj.secret),
-      commitment: typeof noteObj.commitment === "string" ? noteObj.commitment : "",
+      commitment:
+        typeof noteObj.commitment === "string" ? noteObj.commitment : "",
       spent: Boolean(noteObj.spent),
-      createdAt: typeof noteObj.createdAt === "number" ? noteObj.createdAt : Date.now(),
+      createdAt:
+        typeof noteObj.createdAt === "number" ? noteObj.createdAt : Date.now(),
     };
   });
 
   return {
     version: BACKUP_FORMAT_VERSION,
-    createdAt: typeof obj.createdAt === "string" ? obj.createdAt : new Date().toISOString(),
+    createdAt:
+      typeof obj.createdAt === "string"
+        ? obj.createdAt
+        : new Date().toISOString(),
     cluster: typeof obj.cluster === "string" ? obj.cluster : fallbackCluster,
     poolId: typeof obj.poolId === "string" ? obj.poolId : null,
     notes: migratedNotes,

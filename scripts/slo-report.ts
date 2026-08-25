@@ -20,7 +20,7 @@
  *   npx tsx scripts/slo-report.ts --publisher-url http://127.0.0.1:8790 --json
  *
  * Cron example (hourly):
- *   0 * * * * cd /path/to/opauque-stellar && npx tsx scripts/slo-report.ts >> ops/slo/report.log 2>&1
+ *   0 * * * * cd /path/to/opaque-stellar && npx tsx scripts/slo-report.ts >> ops/slo/report.log 2>&1
  */
 import { appendFileSync, existsSync, mkdirSync, readdirSync, readFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";

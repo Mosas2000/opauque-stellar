@@ -56,7 +56,7 @@ export default defineConfig({
       ],
     },
     socialLinks: [
-      { icon: "github", link: "https://github.com/collinsadi/opauque-stellar" },
+      { icon: "github", link: "https://github.com/collinsadi/opaque-stellar" },
     ],
     footer: {
       message: "Released under the MIT License.",

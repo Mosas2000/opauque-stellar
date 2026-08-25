@@ -25,8 +25,8 @@ The ASP cannot move user funds. It only publishes roots. The privacy-pool contra
 ## Install
 
 ```bash
-git clone https://github.com/collinsadi/opauque-stellar.git
-cd opauque-stellar/asp
+git clone https://github.com/collinsadi/opaque-stellar.git
+cd opaque-stellar/asp
 npm ci
 ```
 

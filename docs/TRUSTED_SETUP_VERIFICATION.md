@@ -1,6 +1,6 @@
 # Verify the Production zk Setup (Trusted Setup) Yourself
 
-> Tracking issue: [#487 — Add ZK trusted setup verification instructions for users](https://github.com/collinsadi/opauque-stellar/issues/487)
+> Tracking issue: [#487 — Add ZK trusted setup verification instructions for users](https://github.com/collinsadi/opaque-stellar/issues/487)
 >
 > Background: [TRUSTED_SETUP_CEREMONY.md](TRUSTED_SETUP_CEREMONY.md) (how the
 > ceremony is run and what is published). **Linked from the reputation settings
@@ -33,8 +33,8 @@ The guarantees you are checking:
 node --version          # any recent LTS
 npm install -g snarkjs  # or: npx snarkjs <cmd>
 which sha256sum gpg     # sha256sum (coreutils), gpg (GnuPG)
-git clone https://github.com/collinsadi/opauque-stellar.git
-cd opauque-stellar
+git clone https://github.com/collinsadi/opaque-stellar.git
+cd opaque-stellar
 ```
 
 > No proprietary tooling, no remote calls, and no trust in a hosted verifier are

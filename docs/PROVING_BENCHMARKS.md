@@ -1,6 +1,6 @@
 # Proving Time Benchmarks
 
-> Tracking issue: [#597 — Add proving time benchmarks across device classes](https://github.com/collinsadi/opauque-stellar/issues/597)
+> Tracking issue: [#597 — Add proving time benchmarks across device classes](https://github.com/collinsadi/opaque-stellar/issues/597)
 
 Groth16 proof generation over BN254 is the most computationally expensive
 operation a client performs. This document reports wall-clock proving times

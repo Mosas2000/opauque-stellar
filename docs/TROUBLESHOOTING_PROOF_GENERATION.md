@@ -3,10 +3,10 @@
 Issue: #649 — *Add troubleshooting guide for proof generation failures*
 
 Reputation proofs are generated entirely in-browser (`snarkjs`, driven from
-[`ProofGeneratorModal`](https://github.com/collinsadi/opauque-stellar/blob/main/frontend/src/components/ProofGeneratorModal.tsx)
-/ [`ProveTraitModal`](https://github.com/collinsadi/opauque-stellar/blob/main/frontend/src/components/ProveTraitModal.tsx),
+[`ProofGeneratorModal`](https://github.com/collinsadi/opaque-stellar/blob/main/frontend/src/components/ProofGeneratorModal.tsx)
+/ [`ProveTraitModal`](https://github.com/collinsadi/opaque-stellar/blob/main/frontend/src/components/ProveTraitModal.tsx),
 both built on
-[`reputationProver.ts`](https://github.com/collinsadi/opauque-stellar/blob/main/frontend/src/lib/reputationProver.ts))
+[`reputationProver.ts`](https://github.com/collinsadi/opaque-stellar/blob/main/frontend/src/lib/reputationProver.ts))
 and then verified on-chain by `ReputationVerifier.verify_reputation`, which
 itself calls into `Groth16Verifier`. Failures can originate at any of those
 layers, and the raw errors they throw (WASM traps, fetch errors, contract
@@ -18,7 +18,7 @@ This covers the reference wallet's own proof-generation flow
 (`@opaquecash/stellar`) instead, its `reputation.prove` /
 `verifyOnChain` wrap the same on-chain contracts behind a different error
 surface (`NotWiredError`, `RootUnavailableError`, `ContractError`) — see
-[ZK Reputation](https://github.com/collinsadi/opauque-stellar/blob/main/sdk/docs/integrate/reputation.md#notes--errors).
+[ZK Reputation](https://github.com/collinsadi/opaque-stellar/blob/main/sdk/docs/integrate/reputation.md#notes--errors).
 The [contract error code reference](#contract-error-code-reference) below
 applies to both.
 
@@ -51,7 +51,7 @@ exception for `/circuits/**` on the hosting provider. Common root causes:
 - The host's SPA catch-all route is serving `index.html` for
   `/circuits/v2/*.wasm` / `.zkey` requests instead of the actual binary
   (`isWasmHtmlFallbackError` in
-  [`publicAssets.ts`](https://github.com/collinsadi/opauque-stellar/blob/main/frontend/src/lib/publicAssets.ts)
+  [`publicAssets.ts`](https://github.com/collinsadi/opaque-stellar/blob/main/frontend/src/lib/publicAssets.ts)
   detects this by sniffing the response for an HTML content type).
 - A CDN/browser cache is serving a stale 404 for a path that now exists —
   hard-refresh or bypass cache.
@@ -117,7 +117,7 @@ memory. This is far more common on:
   or `verify_reputation`.
 - UI banners: **"Root Frozen: Proof Generation Blocked"** or **"Root
   Stale"** (from
-  [`freezePolicy.ts`](https://github.com/collinsadi/opauque-stellar/blob/main/frontend/src/lib/freezePolicy.ts)).
+  [`freezePolicy.ts`](https://github.com/collinsadi/opaque-stellar/blob/main/frontend/src/lib/freezePolicy.ts)).
   These are frontend-computed advisories, not an on-chain gate today — the
   contract has no `is_frozen()` entrypoint or freeze-related error variant
   yet; "frozen" is surfaced only if the UI is passed an out-of-band signal
@@ -230,7 +230,7 @@ See `contracts/reputation-verifier/src/lib.rs` and
 ## Still stuck?
 
 If none of the above matches, check
-[SECURITY.md](https://github.com/collinsadi/opauque-stellar/blob/main/SECURITY.md)
+[SECURITY.md](https://github.com/collinsadi/opaque-stellar/blob/main/SECURITY.md)
 and open a GitHub issue with the raw error text, and whether the failure is
 client-side (browser console) or an on-chain rejection (transaction result
 codes).

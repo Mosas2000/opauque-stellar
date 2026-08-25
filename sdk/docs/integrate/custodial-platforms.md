@@ -125,7 +125,7 @@ sends/receives (steps 1–3 above) never touch the Association Set Provider.
   lost — they remain recoverable via direct stealth-key withdrawal,
   immediately, with no operator involvement. Only *pool* withdrawal proof
   generation is blocked for that specific deposit. See the
-  [exclusion and appeal process](https://github.com/collinsadi/opauque-stellar/blob/main/docs/EXCLUSION_APPEAL_PROCESS.md)
+  [exclusion and appeal process](https://github.com/collinsadi/opaque-stellar/blob/main/docs/EXCLUSION_APPEAL_PROCESS.md)
   — note its appeal channel is currently a draft/placeholder with no firm
   SLA; don't present it to your users as a guaranteed compliance workflow.
 - **You still need your own AML/travel-rule tooling.** Nothing in this
@@ -171,4 +171,4 @@ sends/receives (steps 1–3 above) never touch the Association Set Provider.
 
 If proof generation or on-chain verification fails (relevant once you
 integrate the privacy pool or ZK reputation), see
-[Troubleshooting Proof Generation Failures](https://github.com/collinsadi/opauque-stellar/blob/main/docs/TROUBLESHOOTING_PROOF_GENERATION.md).
+[Troubleshooting Proof Generation Failures](https://github.com/collinsadi/opaque-stellar/blob/main/docs/TROUBLESHOOTING_PROOF_GENERATION.md).

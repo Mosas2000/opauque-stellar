@@ -122,7 +122,7 @@
   "releaseAssets": {
     "repository": "opaquecash/stellar",
     "tag": "v1-circuit-artifacts",
-    "baseUrl": "https://github.com/collinsadi/opauque-stellar/releases/download/v1-circuit-artifacts",
+    "baseUrl": "https://github.com/collinsadi/opaque-stellar/releases/download/v1-circuit-artifacts",
     "files": {
       "v2_zkey": "stealth_reputation_final.zkey",
       "v2_witness_wasm": "stealth_reputation.wasm",

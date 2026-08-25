@@ -18,7 +18,7 @@ export function ThreatModelPage() {
           visible, and which mitigations map to implementation work. For browser key
           storage details, see{" "}
           <a
-            href="https://github.com/collinsadi/opauque-stellar/blob/main/docs/GHOST_THREAT_MODEL.md"
+            href="https://github.com/collinsadi/opaque-stellar/blob/main/docs/GHOST_THREAT_MODEL.md"
             target="_blank"
             rel="noopener noreferrer"
             className="text-white underline hover:text-white"
@@ -206,7 +206,7 @@ export function ThreatModelPage() {
           </Link>
           , and the{" "}
           <a
-            href="https://github.com/collinsadi/opauque-stellar/blob/main/docs/technical-overview.md"
+            href="https://github.com/collinsadi/opaque-stellar/blob/main/docs/technical-overview.md"
             target="_blank"
             rel="noopener noreferrer"
             className="text-white underline hover:text-white"

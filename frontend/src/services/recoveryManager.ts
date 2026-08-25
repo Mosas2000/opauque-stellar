@@ -28,11 +28,14 @@ export class RecoveryManager {
       enc.encode(password),
       { name: "PBKDF2" },
       false,
-      ["deriveKey"]
+      ["deriveKey"],
     );
   }
 
-  private static async deriveAESKey(passwordKey: CryptoKey, salt: Uint8Array): Promise<CryptoKey> {
+  private static async deriveAESKey(
+    passwordKey: CryptoKey,
+    salt: Uint8Array,
+  ): Promise<CryptoKey> {
     return globalThis.crypto.subtle.deriveKey(
       {
         name: "PBKDF2",
@@ -43,18 +46,21 @@ export class RecoveryManager {
       passwordKey,
       { name: "AES-GCM", length: this.KEY_LENGTH },
       false,
-      ["encrypt", "decrypt"]
+      ["encrypt", "decrypt"],
     );
   }
 
   private static async computeChecksum(data: Uint8Array): Promise<string> {
     const hashBuf = await globalThis.crypto.subtle.digest("SHA-256", data);
     return Array.from(new Uint8Array(hashBuf))
-      .map(b => b.toString(16).padStart(2, "0"))
+      .map((b) => b.toString(16).padStart(2, "0"))
       .join("");
   }
 
-  static async exportBackup(password: string, payload: BackupPayload): Promise<BackupFile> {
+  static async exportBackup(
+    password: string,
+    payload: BackupPayload,
+  ): Promise<BackupFile> {
     const salt = globalThis.crypto.getRandomValues(new Uint8Array(16));
     const nonce = globalThis.crypto.getRandomValues(new Uint8Array(12));
 
@@ -70,14 +76,14 @@ export class RecoveryManager {
         iv: nonce,
       },
       aesKey,
-      encodedPayload
+      encodedPayload,
     );
 
     const ciphertext = new Uint8Array(encryptedContent);
     const checksum = await this.computeChecksum(ciphertext);
 
     return {
-      $schema: "https://opaque.network/schemas/recovery-backup-v2.json",
+      $schema: "https://opaque.cash/schemas/recovery-backup-v2.json",
       version: 1,
       formatVersion: 2,
       timestamp: new Date().toISOString(),
@@ -88,14 +94,19 @@ export class RecoveryManager {
     };
   }
 
-  static async importBackup(password: string, backup: BackupFile): Promise<BackupPayload> {
+  static async importBackup(
+    password: string,
+    backup: BackupFile,
+  ): Promise<BackupPayload> {
     if (!backup || !backup.encrypted_payload || !backup.salt || !backup.nonce) {
       throw new Error("Corrupted backup file: missing required fields.");
     }
 
-    const salt = Uint8Array.from(atob(backup.salt), c => c.charCodeAt(0));
-    const nonce = Uint8Array.from(atob(backup.nonce), c => c.charCodeAt(0));
-    const encryptedData = Uint8Array.from(atob(backup.encrypted_payload), c => c.charCodeAt(0));
+    const salt = Uint8Array.from(atob(backup.salt), (c) => c.charCodeAt(0));
+    const nonce = Uint8Array.from(atob(backup.nonce), (c) => c.charCodeAt(0));
+    const encryptedData = Uint8Array.from(atob(backup.encrypted_payload), (c) =>
+      c.charCodeAt(0),
+    );
 
     // Verify integrity checksum if present (v2+)
     if (backup.checksum) {
@@ -115,7 +126,7 @@ export class RecoveryManager {
           iv: nonce,
         },
         aesKey,
-        encryptedData
+        encryptedData,
       );
 
       const dec = new TextDecoder();
@@ -124,10 +135,16 @@ export class RecoveryManager {
 
       // Auto-migrate legacy structures if needed
       return {
-        stealthMasterKeys: Array.isArray(parsed.stealthMasterKeys) ? parsed.stealthMasterKeys : [],
-        metaAddresses: Array.isArray(parsed.metaAddresses) ? parsed.metaAddresses : [],
+        stealthMasterKeys: Array.isArray(parsed.stealthMasterKeys)
+          ? parsed.stealthMasterKeys
+          : [],
+        metaAddresses: Array.isArray(parsed.metaAddresses)
+          ? parsed.metaAddresses
+          : [],
         scanKeys: Array.isArray(parsed.scanKeys) ? parsed.scanKeys : [],
-        ghostEntries: Array.isArray(parsed.ghostEntries) ? parsed.ghostEntries : [],
+        ghostEntries: Array.isArray(parsed.ghostEntries)
+          ? parsed.ghostEntries
+          : [],
         recoveryMetadata: parsed.recoveryMetadata ?? {},
       };
     } catch (e) {
@@ -139,9 +156,11 @@ export class RecoveryManager {
   }
 
   static downloadBackupFile(backup: BackupFile) {
-    const dateStr = new Date().toISOString().split('T')[0];
+    const dateStr = new Date().toISOString().split("T")[0];
     const fileName = `opaque-backup-v${backup.formatVersion || backup.version || 1}-${dateStr}.opq`;
-    const blob = new Blob([JSON.stringify(backup, null, 2)], { type: "application/json" });
+    const blob = new Blob([JSON.stringify(backup, null, 2)], {
+      type: "application/json",
+    });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;

@@ -50,7 +50,7 @@ curl "https://friendbot.stellar.org?addr=<G-address>"
 ## Step 3 — Build contracts
 
 ```bash
-cd /path/to/opauque-stellar
+cd /path/to/opaque-stellar
 stellar contract build
 ```
 
@@ -146,7 +146,7 @@ are no longer valid after a reset. Clear it before restarting:
 
 ```bash
 sudo systemctl stop opaque-asp
-rm -rf /path/to/opauque-stellar/asp/data/
+rm -rf /path/to/opaque-stellar/asp/data/
 sudo systemctl start opaque-asp
 sudo journalctl -u opaque-asp -f
 ```
@@ -161,8 +161,8 @@ Clear the publisher's stale state and restart:
 
 ```bash
 sudo systemctl stop opaque-publisher
-rm -rf /path/to/opauque-stellar/publisher/data/state/
-rm -rf /path/to/opauque-stellar/publisher/data/roots/
+rm -rf /path/to/opaque-stellar/publisher/data/state/
+rm -rf /path/to/opaque-stellar/publisher/data/roots/
 # Keep publisher/data/inbox/ if you want to re-publish existing leaves
 sudo systemctl start opaque-publisher
 sudo journalctl -u opaque-publisher -f
@@ -178,7 +178,7 @@ The relayer registry was redeployed in step 6, so the operator must re-register:
 
 ```bash
 sudo systemctl stop opaque-relayer
-cd /path/to/opauque-stellar/relayer
+cd /path/to/opaque-stellar/relayer
 set -a && source /path/to/.env && set +a
 npm run register
 sudo systemctl start opaque-relayer

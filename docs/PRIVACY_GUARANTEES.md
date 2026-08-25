@@ -57,7 +57,7 @@ account.
 - **Can learn:** Any chain observer sees exactly who sent a given stealth
   payment, when, and for how much. Opaque never obscures the sender.
 - **Known weakening:** N/A — always true, by design; see
-  [Custodial Platforms](https://github.com/collinsadi/opauque-stellar/blob/main/sdk/docs/integrate/custodial-platforms.md)
+  [Custodial Platforms](https://github.com/collinsadi/opaque-stellar/blob/main/sdk/docs/integrate/custodial-platforms.md)
   § Association set and policy implications for what this means for
   platform integrators specifically.
 - **Enforced by:** The Stellar ledger itself (outside protocol control);
@@ -103,7 +103,7 @@ circuit-defined public signals. The live `verify_reputation` entrypoint
 uses the 4-signal V2 layout (`merkle_root, attestation_id,
 external_nullifier, nullifier_hash`, checked via `Groth16Verifier
 .verify_proof_v2`) — see
-[ZK Reputation](https://github.com/collinsadi/opauque-stellar/blob/main/sdk/docs/integrate/reputation.md).
+[ZK Reputation](https://github.com/collinsadi/opaque-stellar/blob/main/sdk/docs/integrate/reputation.md).
 `Groth16Verifier` also exposes a generic 5-signal `verify_proof` and a
 6-signal `verify_proof_v3` (used by the privacy pool's withdraw circuit,
 not the reputation flow); neither changes what this property covers.
@@ -162,7 +162,7 @@ adds.
   `contracts/attestation-engine-v2` (issuance volume per schema) — this is
   the parameter that actually controls real-world privacy strength for a
   given proof. Platform integrators: see
-  [Custodial Platforms](https://github.com/collinsadi/opauque-stellar/blob/main/sdk/docs/integrate/custodial-platforms.md)
+  [Custodial Platforms](https://github.com/collinsadi/opaque-stellar/blob/main/sdk/docs/integrate/custodial-platforms.md)
   § Association set and policy implications before making privacy claims
   about proofs tied to low-volume schemas.
 
@@ -208,7 +208,7 @@ fairly or completely.
   admin address, not that the underlying dataset is fair or complete. This
   is a named trust assumption, not a bug. (An admin-triggered freeze of
   verification is a UI-level concept today —
-  [`frontend/src/lib/freezePolicy.ts`](https://github.com/collinsadi/opauque-stellar/blob/main/frontend/src/lib/freezePolicy.ts) —
+  [`frontend/src/lib/freezePolicy.ts`](https://github.com/collinsadi/opaque-stellar/blob/main/frontend/src/lib/freezePolicy.ts) —
   not yet an enforced on-chain contract state.)
 - **Enforced by:** `contracts/reputation-verifier` (`update_merkle_root`,
   admin-gated; `get_root_history`, public read).

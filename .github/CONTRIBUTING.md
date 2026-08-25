@@ -100,8 +100,8 @@ Each Node workspace pins its dependencies with a lockfile and must be installed 
 `npm ci` (not `npm install`) so you match the lockfile exactly.
 
 ```bash
-git clone https://github.com/collinsadi/opauque-stellar.git
-cd opauque-stellar
+git clone https://github.com/collinsadi/opaque-stellar.git
+cd opaque-stellar
 
 npm ci                       # root tooling (tsx, typescript)
 ( cd frontend && npm ci )

@@ -1,6 +1,6 @@
 # Admin Key Compromise Playbooks
 
-> Tracking issues: [#485 — Add admin key compromise playbooks](https://github.com/collinsadi/opauque-stellar/issues/485)
+> Tracking issues: [#485 — Add admin key compromise playbooks](https://github.com/collinsadi/opaque-stellar/issues/485)
 >
 > Companion to [MULTISIG_ADMIN.md](MULTISIG_ADMIN.md) (how admin authority is
 > structured) and [UPGRADE_GOVERNANCE.md](UPGRADE_GOVERNANCE.md) (how upgrades

@@ -2,7 +2,7 @@
  * In-app help links: recovery and protocol notes live in README.md on GitHub.
  */
 
-const DEFAULT_REPO = "https://github.com/collinsadi/opauque-stellar/blob/main";
+const DEFAULT_REPO = "https://github.com/collinsadi/opaque-stellar/blob/main";
 
 function docsBaseUrl(): string {
   const fromEnv = import.meta.env.VITE_DOCS_BASE_URL as string | undefined;

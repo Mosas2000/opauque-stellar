@@ -1,6 +1,6 @@
 # Nullifier Derivation Specification
 
-> Tracking issue: [#598 — Add formal specification for nullifier derivation](https://github.com/collinsadi/opauque-stellar/issues/598)
+> Tracking issue: [#598 — Add formal specification for nullifier derivation](https://github.com/collinsadi/opaque-stellar/issues/598)
 
 This document specifies nullifier derivation independently of the circuit
 implementation. It defines exact inputs, the hash construction, domain

@@ -156,7 +156,7 @@ const txHash = await holder.reputation.proveAndVerify({
 
 If proof generation or on-chain verification fails and the above doesn't
 cover it, see
-[Troubleshooting Proof Generation Failures](https://github.com/collinsadi/opauque-stellar/blob/main/docs/TROUBLESHOOTING_PROOF_GENERATION.md)
+[Troubleshooting Proof Generation Failures](https://github.com/collinsadi/opaque-stellar/blob/main/docs/TROUBLESHOOTING_PROOF_GENERATION.md)
 for the full set of failure signatures (artifact fetch, memory, stale root,
 input mismatch) mapped to causes and fixes, including the on-chain
 `Groth16Verifier`/`ReputationVerifier` error code reference.
