@@ -1,82 +1,97 @@
 # Upgrade Governance
 
-This document describes how deployed Soroban contracts can be upgraded, who has authority to perform upgrades, and what guarantees users can rely on.
+This document describes the immutability guarantees of the deployed Soroban contracts and what alternatives exist for responding to bugs or evolving requirements.
 
 ## Overview
 
-Soroban contracts are upgradeable via the built-in `upgrade()` host function. The deployer account (or a delegated multisig) signs the upgrade transaction, replacing the contract's WASM binary while preserving its address and storage. This is a deliberate design choice: it allows bug fixes and feature additions without requiring users to migrate to new contract addresses.
+The Opaque Stellar contracts are **immutable**. None of the contracts expose an `upgrade()` entrypoint or any other mechanism to replace the on-chain WASM binary after deployment. Once deployed, the contract code at a given address is fixed for the lifetime of that address.
 
-## Upgrade Authority
+This is a deliberate design choice: immutability gives users a strong guarantee that the contract they interacted with at deployment will continue to behave identically — no silent code changes, no upgrade-based rug pulls, no trust assumptions around upgrade authority.
 
-Each contract's upgrade authority is the **deployer account** or a **delegated multisig** that controls the contract address. The authority is set at deployment time and is not stored on-chain — it is derived from Stellar account ownership.
+## Implications
 
-| Contract | Upgrade Authority | Mechanism |
-| --- | --- | --- |
-| `groth16-verifier` | Deployer / multisig | `upgrade()` host function |
-| `privacy-pool` | Deployer / multisig | `upgrade()` host function |
-| `reputation-verifier` | Deployer / multisig | `upgrade()` host function |
-| `attestation-engine-v2` | Deployer / multisig | `upgrade()` host function; `upgrade_info` field in `GovernanceConfig` for metadata |
-| `schema-registry` | Deployer / multisig | `upgrade()` host function |
-| `relayer-registry` | Deployer / multisig | `upgrade()` host function |
-| `stealth-announcer` | Deployer / multisig | `upgrade()` host function |
-| `stealth-registry` | Deployer / multisig | `upgrade()` host function |
+| Property | Immutability Guarantee |
+| --- | --- |
+| Contract code | Cannot change after deployment |
+| Storage layout | Fixed at deployment; no lazy migrations needed |
+| Trust model | Users verify the WASM hash once and are done |
+| Bug response | Deploy a new contract with a new address |
 
-### Governance Model
+## Contract Inventory
 
-The `attestation-engine-v2` contract has a two-key governance model with separate `admin` and `governance` roles. Both roles can:
-- Update configuration (including `upgrade_info` metadata)
-- Pause/unpause individual contract features (attestation, merkle updates, proof verification)
+| Contract | Deployment Model |
+| --- | --- |
+| `groth16-verifier` | Immutable; verification keys are compile-time constants |
+| `privacy-pool` | Immutable |
+| `reputation-verifier` | Immutable |
+| `attestation-engine-v2` | Immutable; governance config (admin, governance) is mutable on-chain |
+| `schema-registry` | Immutable |
+| `relayer-registry` | Immutable; config (admin, min stake) is mutable on-chain |
+| `stealth-announcer` | Immutable |
+| `stealth-registry` | Immutable |
 
-The `upgrade_info` field is an opaque blob that can store deployment context for off-chain tooling. It does not affect on-chain behavior.
+### Mutable Configuration
 
-## Upgrade Process
+Although the contract code is immutable, several contracts expose governance functions that mutate on-chain configuration:
 
-1. **Prepare** the new WASM binary. The binary must be compiled from the same source with compatible storage layouts.
-2. **Review** the upgrade for storage compatibility. Migrations run lazily on first access after an upgrade.
-3. **Submit** the upgrade transaction signed by the deployer account (or multisig).
-4. **Verify** by calling `version()` on each contract to confirm the new version is active.
+- **`attestation-engine-v2`**: Separate `admin` and `governance` roles can pause/unpause features, update the schema registry address, and transfer authority. The `upgrade_info` field stores deployment metadata for off-chain tooling but does not affect on-chain behavior.
+- **`relayer-registry`**: The `admin` role can update minimum stake, unstake cooldown, and max deadline via `set_config`. Admin authority can be transferred to a multisig contract via `transfer_admin`.
 
-## Migration Strategy
+## Storage Persistence
 
-Storage migrations are handled lazily. Each storage key type documents its migration path in the contract source. When a contract is upgraded:
+Persistent storage entries include TTL extension calls to prevent archival (Issue #734). At 5 s/ledger, the default TTL of ~120 days (2,073,600 ledgers) ensures long-lived entries remain accessible without active rent payments.
 
-- Existing storage keys are preserved.
-- New storage keys may be added.
-- The first access to a migrated key triggers the migration logic.
-- Older storage written by a previous version remains but is ignored by the rollback binary if a rollback occurs.
+Contracts that write to persistent storage extend the TTL of each key after every write, keeping the entry alive for another full period. Read-only access to an entry also extends its TTL.
 
-## Rollback
+## Emergency Response
 
-Rollback is performed by re-deploying the previous WASM hash via `upgrade()`. Storage written by the newer version remains on-chain but is ignored by the rolled-back binary. This is safe because storage keys are versioned by the contract's internal schema.
+Without upgrade capability, the primary emergency response mechanisms are:
+
+1. **Pause functions** (attestation-engine-v2): Individual features can be paused without affecting the rest of the system. This allows halting specific operations while leaving reads and other functions operational.
+
+2. **Slashing** (relayer-registry): Malicious relayer behavior (double-signing, invalid signatures) can be punished by slashing their bonded stake, verified via on-chain cryptographic evidence.
+
+3. **Redeployment**: For bugs that cannot be addressed via pause or governance config changes, deploy a new contract at a new address and coordinate migration with users and indexers. Frontend validation (`EXPECTED_MAJOR_VERSION`) prevents interaction with contracts whose version does not match expectations.
+
+## Upgrade Path (for Address Evolution)
+
+If a breaking change is needed, the recommended path is:
+
+1. **Deploy** the new contract at a fresh address.
+2. **Announce** the migration via the governance channel.
+3. **Coordinate** frontend and indexer updates to the new address.
+4. **Deprecate** the old contract — it remains on-chain and functional but is no longer the active target.
+
+Existing on-chain state (nullifiers, commitments, attestations, schemas) is **not** portable to a new contract address without an explicit data migration plan.
 
 ## Client Inspection
 
-Clients can inspect the current version by calling `version()` on each contract. The deployment manifest (`deployments/v1/<network>.json`) records the expected WASM hash and version for each network. Frontend validation (`EXPECTED_MAJOR_VERSION`) prevents interaction with contracts whose major version does not match.
+Clients can verify contract identity by checking the WASM hash at deployment time. The deployment manifest (`deployments/v1/<network>.json`) records the expected WASM hash and version for each network. Frontend validation (`EXPECTED_MAJOR_VERSION` in `frontend/src/lib/contractVersion.ts`) prevents interaction with contracts whose major version does not match.
 
 ## Immutable Components
 
-The following components are **not** upgradeable and are fixed at deployment:
+The following are fixed at compile time and cannot change under any circumstances:
 
-- **Circuit verification keys** (`VK_ALPHA`, `VK_BETA`, etc.) are compile-time constants in the `groth16-verifier` contract. Changing them requires a full contract redeployment (new address).
-- **Circuit constraints** in `circuits/` are fixed by the trusted setup. Changing the proof system requires a new circuit, new verification keys, and a new verifier contract.
-- **Event schema versions** (`EVENT_VERSION`) are compile-time constants. Changing the event ABI is a breaking change that requires coordination with scanners and indexers.
+- **Circuit verification keys** (`VK_ALPHA`, `VK_BETA`, etc.) in the `groth16-verifier` contract.
+- **Circuit constraints** in `circuits/` — changing the proof system requires a new circuit, new verification keys, and a new verifier contract.
+- **Event schema versions** (`EVENT_VERSION`) — changing the event ABI is a breaking change requiring scanner/indexer coordination.
 
 ## User-Visible Guarantees
 
-- **Address stability**: Contract addresses never change across upgrades.
-- **Storage persistence**: All on-chain state (nullifiers, commitments, roots, attestations) is preserved across upgrades.
+- **Code integrity**: Contract code cannot change after deployment.
+- **Storage persistence**: All on-chain state is preserved for the lifetime of the contract (no lazy migrations needed, no upgrade surprises).
+- **Address stability**: Contract addresses never change — the code at a given address is guaranteed.
 - **Authorization preservation**: Admin and governance roles set at initialization are preserved unless explicitly changed by a governance action.
-- **Proof compatibility**: Existing valid proofs continue to work after an upgrade, unless the upgrade changes the verification key (which constitutes a new contract deployment).
 
 ## Security Considerations
 
-- Upgrade authority is a critical trust assumption. Users must trust that the deployer/multisig will not deploy malicious code.
-- The `upgrade_info` field in `attestation-engine-v2` is opaque and does not affect on-chain behavior, but clients should not rely on it for security decisions.
-- Emergency pause mechanisms (per-feature pauses in `attestation-engine-v2`) can halt specific contract functions without requiring an upgrade.
+- **Upgrade authority is not a trust assumption** — because there is no upgrade authority. This eliminates the risk of malicious upgrades entirely.
+- **Pause mechanisms** are a controlled alternative to upgrades for responding to emergencies.
+- **Bug fixes** require deploying new contracts, which gives users full transparency about what code they are interacting with.
 
 ## References
 
-- [Soroban Documentation: Contract Upgrades](https://soroban.stellar.org/docs/learn/soroban-and-smart-contracts/upgrading-contracts)
+- [Soroban Documentation: Contract Upgrades](https://soroban.stellar.org/docs/learn/soroban-and-smart-contracts/upgrading-contracts) — for reference; these contracts do not use this mechanism
 - [ADR-0005: Soroban Privacy Pool](adr/0005_soroban_privacy_pool.md) — documents upgrade coordination as a negative consequence
 - [ADR-0001: Off-Chain Published Roots](adr/0001_off_chain_published_roots.md) — policy changes can deploy without contract upgrade
-- [frontend/src/lib/contractVersion.ts](../frontend/src/lib/contractVersion.ts) — `UPGRADE_NOTES` constant with upgrade/rollback/inspection details
+- [frontend/src/lib/contractVersion.ts](../frontend/src/lib/contractVersion.ts) — `EXPECTED_MAJOR_VERSION` constant

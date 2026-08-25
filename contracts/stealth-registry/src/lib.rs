@@ -16,6 +16,10 @@ pub struct StealthRegistry;
 /// Scanners should reject events with an unrecognised version rather than misparse them.
 const EVENT_VERSION: u32 = 1;
 
+/// TTL for persistent storage entries, matching the privacy-pool convention (#734).
+/// At 5 s/ledger this equals ~120 days (2 073 600 ledgers).
+const PERSISTENT_TTL_LEDGERS: u32 = 2_073_600;
+
 #[contracttype]
 #[derive(Clone)]
 pub struct RegistryEntry {
@@ -63,6 +67,16 @@ fn is_valid_secp256k1_pubkey(bytes: &Bytes) -> bool {
     prefix == 0x02 || prefix == 0x03
 }
 
+/// Extend the TTL of a persistent storage key to prevent archival (#734).
+fn bump_persistent_ttl<K: soroban_sdk::IntoVal<Env, soroban_sdk::Val>>(
+    env: &Env,
+    key: &K,
+) {
+    env.storage()
+        .persistent()
+        .extend_ttl(key, PERSISTENT_TTL_LEDGERS, PERSISTENT_TTL_LEDGERS);
+}
+
 #[contractimpl]
 impl StealthRegistry {
     pub fn register_keys(
@@ -93,6 +107,7 @@ impl StealthRegistry {
         let nonce: u64 = env.storage().persistent().get(&n_key).unwrap_or(0);
         let new_nonce = nonce.saturating_add(1);
         env.storage().persistent().set(&n_key, &new_nonce);
+        bump_persistent_ttl(&env, &n_key);
 
         let entry = RegistryEntry {
             registrant: registrant.clone(),
@@ -102,13 +117,17 @@ impl StealthRegistry {
         };
 
         // Update latest and historical
+        let rk = registry_key(&registrant, scheme_id);
         env.storage()
             .persistent()
-            .set(&registry_key(&registrant, scheme_id), &entry);
+            .set(&rk, &entry);
+        bump_persistent_ttl(&env, &rk);
 
+        let hk = history_key(&registrant, scheme_id, new_nonce);
         env.storage()
             .persistent()
-            .set(&history_key(&registrant, scheme_id, new_nonce), &entry);
+            .set(&hk, &entry);
+        bump_persistent_ttl(&env, &hk);
 
         env.events().publish(
             (Symbol::new(&env, "StealthMetaAddressSet"), EVENT_VERSION),
@@ -123,6 +142,7 @@ impl StealthRegistry {
         let nonce: u64 = env.storage().persistent().get(&key).unwrap_or(0);
         let new_nonce = nonce.saturating_add(1);
         env.storage().persistent().set(&key, &new_nonce);
+        bump_persistent_ttl(&env, &key);
         env.events().publish(
             (Symbol::new(&env, "NonceIncremented"), EVENT_VERSION),
             (registrant.clone(), new_nonce),
@@ -130,11 +150,19 @@ impl StealthRegistry {
         new_nonce
     }
 
+    /// Resolve the latest stealth meta-address. Bumps TTL on read to keep
+    /// long-lived entries from expiring (#734).
     pub fn resolve(env: Env, registrant: Address, scheme_id: u64) -> Option<Bytes> {
-        env.storage()
+        let key = registry_key(&registrant, scheme_id);
+        let result = env
+            .storage()
             .persistent()
-            .get::<_, RegistryEntry>(&registry_key(&registrant, scheme_id))
-            .map(|e| e.stealth_meta_address)
+            .get::<_, RegistryEntry>(&key)
+            .map(|e| e.stealth_meta_address);
+        if result.is_some() {
+            bump_persistent_ttl(&env, &key);
+        }
+        result
     }
 
     pub fn resolve_historical(

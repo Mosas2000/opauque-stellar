@@ -15,6 +15,10 @@ use soroban_sdk::{
     IntoVal, String, Symbol,
 };
 
+/// TTL for persistent storage entries, matching the privacy-pool convention (#734).
+/// At 5 s/ledger this equals ~120 days (2 073 600 ledgers).
+const PERSISTENT_TTL_LEDGERS: u32 = 2_073_600;
+
 const DEFAULT_MINIMUM_STAKE: i128 = 1_000_000; // 0.1 XLM on testnet.
 const DEFAULT_UNSTAKE_COOLDOWN_LEDGERS: u32 = 720; // ~1 hour at 5s/ledger.
 const DEFAULT_MAX_DEADLINE_LEDGERS: u32 = 17_280; // ~1 day.
@@ -88,6 +92,9 @@ pub enum RegistryError {
     DeadlineNotPassed = 17,
     PayloadHashMismatch = 18,
     AlreadyFinalized = 19,
+    InvalidSlashAmount = 20,
+    SlashProofInvalid = 21,
+    RelayerNotSlashed = 22,
 }
 
 fn config_key(env: &Env) -> Symbol {
@@ -109,6 +116,13 @@ fn cfg(env: &Env) -> Result<RegistryConfig, RegistryError> {
         .ok_or(RegistryError::NotInitialized)
 }
 
+/// Extend the TTL of a persistent storage key to prevent archival (#734).
+fn bump_persistent_ttl<K: soroban_sdk::IntoVal<Env, soroban_sdk::Val>>(env: &Env, key: &K) {
+    env.storage()
+        .persistent()
+        .extend_ttl(key, PERSISTENT_TTL_LEDGERS, PERSISTENT_TTL_LEDGERS);
+}
+
 fn require_admin(env: &Env, admin: &Address) -> Result<RegistryConfig, RegistryError> {
     admin.require_auth();
     let config = cfg(env)?;
@@ -126,9 +140,11 @@ fn read_relayer(env: &Env, operator: &Address) -> Result<RelayerRecord, Registry
 }
 
 fn write_relayer(env: &Env, record: &RelayerRecord) {
+    let key = relayer_key(env, &record.operator);
     env.storage()
         .persistent()
-        .set(&relayer_key(env, &record.operator), record);
+        .set(&key, record);
+    bump_persistent_ttl(env, &key);
 }
 
 fn read_job(env: &Env, job_id: &BytesN<32>) -> Result<JobRecord, RegistryError> {
@@ -139,7 +155,9 @@ fn read_job(env: &Env, job_id: &BytesN<32>) -> Result<JobRecord, RegistryError> 
 }
 
 fn write_job(env: &Env, job_id: &BytesN<32>, job: &JobRecord) {
-    env.storage().persistent().set(&job_key(env, job_id), job);
+    let key = job_key(env, job_id);
+    env.storage().persistent().set(&key, job);
+    bump_persistent_ttl(env, &key);
 }
 
 fn token_transfer(env: &Env, sac: &Address, from: &Address, to: &Address, amount: i128) {
@@ -618,6 +636,77 @@ impl RelayerRegistry {
         env.storage().instance().set(&config_key(&env), &config);
         Ok(())
     }
+
+    // ── Slashing (#583, #732) ────────────────────────────────────────────────
+
+    /// Report a relayer offense and slash their stake. Anyone may call this.
+    ///
+    /// `slash_amount` is deducted from the relayer's `bonded_stake` (or
+    /// `free_stake` if bonded is insufficient). The slashed amount is
+    /// transferred to the reporter.
+    pub fn report_slash(
+        env: Env,
+        proof: slashing::SlashingProof,
+        slash_amount: i128,
+    ) -> Result<(), RegistryError> {
+        if slash_amount <= 0 {
+            return Err(RegistryError::InvalidSlashAmount);
+        }
+        let slash_u128 = slash_amount as u128;
+
+        // Verify cryptographic evidence and record the slash.
+        slashing::slash_relayer(&env, &proof, slash_u128)?;
+
+        // Deduct from the relayer's stake.
+        let config = cfg(&env)?;
+        let mut relayer = read_relayer(&env, &proof.relayer)?;
+
+        let actual_slash = core::cmp::min(slash_u128, relayer.bonded_stake as u128);
+        relayer.bonded_stake -= actual_slash as i128;
+
+        // If bonded wasn't enough, also slash free stake.
+        let remaining = slash_u128 - actual_slash;
+        if remaining > 0 {
+            let free_slash = core::cmp::min(remaining, relayer.free_stake as u128);
+            relayer.free_stake -= free_slash as i128;
+        }
+
+        write_relayer(&env, &relayer);
+
+        // Pay the reporter.
+        let registry = env.current_contract_address();
+        token_transfer(
+            &env,
+            &config.native_sac,
+            &registry,
+            &proof.reporter,
+            slash_amount,
+        );
+
+        env.events().publish(
+            (Symbol::new(&env, "SlashReported"), EVENT_VERSION),
+            (
+                proof.relayer,
+                proof.offense,
+                slash_amount,
+                proof.reporter,
+            ),
+        );
+        Ok(())
+    }
+
+    /// Return the slashing record for a relayer (slash count, total slashed, etc.).
+    pub fn get_slashing_record(
+        env: Env,
+        relayer: Address,
+    ) -> Option<slashing::RelayerSlashRecord> {
+        slashing::get_slashing_record(&env, &relayer)
+    }
+
+    /// Return the slashing percentage (total_slashed * 10000 / original_stake).
+    pub fn get_slashing_percentage(env: Env, relayer: Address) -> u64 {
+        slashing::get_slashing_percentage(&env, &relayer)
+    }
 }
 
 fn push_array<const N: usize>(env: &Env, buf: &mut Bytes, value: &[u8; N]) {
@@ -656,6 +745,8 @@ fn pool_withdraw_payload_hash(
     buf.append(&pool_relayer.clone().to_xdr(env));
     env.crypto().keccak256(&buf).into()
 }
+
+mod slashing;
 
 #[cfg(test)]
 mod test;

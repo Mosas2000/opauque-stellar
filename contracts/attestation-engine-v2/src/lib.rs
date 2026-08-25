@@ -20,6 +20,10 @@ pub struct AttestationEngineV2;
 /// Scanners should reject events with an unrecognised version rather than misparse them.
 const EVENT_VERSION: u32 = 1;
 
+/// TTL for persistent storage entries, matching the privacy-pool convention (#734).
+/// At 5 s/ledger this equals ~120 days (2 073 600 ledgers).
+const PERSISTENT_TTL_LEDGERS: u32 = 2_073_600;
+
 #[contracttype]
 #[derive(Clone)]
 pub struct Attestation {
@@ -138,6 +142,13 @@ fn soroban_string_to_str<'a>(
     core::str::from_utf8(&buf[..len]).ok()
 }
 
+/// Extend the TTL of a persistent storage key to prevent archival (#734).
+fn bump_persistent_ttl<K: soroban_sdk::IntoVal<Env, soroban_sdk::Val>>(env: &Env, key: &K) {
+    env.storage()
+        .persistent()
+        .extend_ttl(key, PERSISTENT_TTL_LEDGERS, PERSISTENT_TTL_LEDGERS);
+}
+
 fn data_error(e: AttestationDataError) -> AttestationError {
     match e {
         AttestationDataError::TooLarge => AttestationError::DataTooLarge,
@@ -182,6 +193,7 @@ fn next_issuance_sequence(env: &Env, schema_id: &BytesN<32>, stealth_hash: &Byte
     let current: u64 = env.storage().persistent().get(&key).unwrap_or(0);
     let next = current.saturating_add(1);
     env.storage().persistent().set(&key, &next);
+    bump_persistent_ttl(env, &key);
     next
 }
 
@@ -343,6 +355,7 @@ impl AttestationEngineV2 {
             issuance_sequence,
         };
         env.storage().persistent().set(&key, &attestation);
+        bump_persistent_ttl(&env, &key);
         env.events().publish(
             (Symbol::new(&env, "AttestationCreated"), EVENT_VERSION),
             (uid.clone(), schema_id, issuer, stealth_address_hash),
@@ -392,6 +405,7 @@ impl AttestationEngineV2 {
         }
         attestation.revocation_ledger = env.ledger().sequence();
         env.storage().persistent().set(&key, &attestation);
+        bump_persistent_ttl(&env, &key);
         env.events().publish(
             (Symbol::new(&env, "AttestationRevoked"), EVENT_VERSION),
             (uid, revoker),
