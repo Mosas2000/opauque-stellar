@@ -106,12 +106,16 @@ Variables:
 | `PUBLISHER_CORS_ORIGIN` | `*` | Browser origin allowed to submit leaves/fetch paths. |
 | `PUBLISHER_DATA_DIR` | `publisher/data` | Durable inbox/state/root manifest directory. |
 | `PUBLISHER_MAX_INBOX` | `10000` | Maximum inbox queue size before backpressure is applied. |
+| `PUBLISHER_MAX_BODY_BYTES` | `32768` | Streaming request-body size cap for `POST /v1/reputation/leaves`; oversized bodies are aborted mid-stream with `413 PAYLOAD_TOO_LARGE`. |
 
 ## Run The HTTP API
 
 This is the mode the frontend uses for Option 2. `POST /v1/reputation/leaves`
-queues a holder-computed leaf, immediately reconciles/publishes the root, and returns the
-leaf's inclusion path when available.
+queues a holder-computed leaf into the durable inbox and acknowledges immediately (202).
+Publication — the on-chain `update_merkle_root` Soroban round trip — runs on a background
+tick loop (`PUBLISHER_INTERVAL_MS`) independent of the request, with retry on the next
+interval if a tick fails. Submitters confirm inclusion once the background loop
+publishes, via `GET /v1/reputation/root/:leaf` or `/v1/reputation/snapshot/:verifierId`.
 
 ```bash
 cd publisher
@@ -125,11 +129,11 @@ Endpoints:
 
 | Method | Path | Purpose |
 | --- | --- | --- |
-| `POST` | `/v1/reputation/leaves` | Accept a holder-submitted V2 leaf commitment and run a publish tick. Returns 429 when inbox is full. |
-| `GET` | `/v1/reputation/root/:leaf` | Return current root, leaf index, and Merkle path for a leaf. |
+| `POST` | `/v1/reputation/leaves` | Queue a holder-submitted V2 leaf commitment into the inbox. Returns `202` with an acknowledgement (not the publish result); returns `429` when the inbox is full, `413` when the body exceeds `PUBLISHER_MAX_BODY_BYTES`. |
+| `GET` | `/v1/reputation/root/:leaf` | Return current root, leaf index, and Merkle path for a leaf (reflects the latest background-published root). |
 | `GET` | `/v1/reputation/snapshot/:verifierId` | Export an auditable tree snapshot with leaves and intermediate hashes. |
 | `GET` | `/metrics` | Prometheus exposition format metrics (inbox depth, latency, publication counters). |
-| `GET` | `/health` | Health check with verifier id and inbox depth. |
+| `GET` | `/health` | Health check with verifier id, inbox depth, and last publish time. |
 
 Submit body:
 

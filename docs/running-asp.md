@@ -46,9 +46,16 @@ ASP_SECRET=S...your_asp_authority_secret...
 STELLAR_RPC_URL=https://soroban-testnet.stellar.org
 ASP_INTERVAL_MS=15000
 ASP_CONFIRMATIONS=1
+ASP_MAX_ROOT_AGE_MS=120000
 ```
 
 `ASP_SECRET` must be able to call `update_asp_root` and `update_state_root` for the deployed privacy pool.
+
+`ASP_MAX_ROOT_AGE_MS` is the max age of the last published root before the built-in
+`PublicationMonitor` fires a stale-root alert (logged as `[ALERT] ...`) and `/health`
+(see below) starts reporting unhealthy. A ledger reorg is handled separately by the
+built-in `ReorgGuard`, which halts publication (logged as `[REORG] ...`) instead of
+publishing a root built on a rolled-back ledger — no configuration needed.
 
 ## Run One Tick
 
@@ -79,6 +86,19 @@ npm run indexer
 ```
 
 The default loop interval is 15 seconds.
+
+## HTTP Server (health, metrics, manifest)
+
+`npm run serve` runs the same reconcile loop plus a minimal HTTP listener:
+
+| Endpoint    | Purpose                                                                       |
+| ----------- | ------------------------------------------------------------------------------ |
+| `/health`   | `200` when the last tick succeeded and the root is fresh; `503` otherwise.      |
+| `/metrics`  | Prometheus exposition format (tick duration, publication lag, failure counters). |
+| `/manifest` | The current association-set manifest.                                          |
+
+Bind host/port/CORS: `ASP_HTTP_HOST` (default `127.0.0.1`), `ASP_HTTP_PORT` (default
+`8791`), `ASP_CORS_ORIGIN` (default `*`).
 
 ## systemd Service
 

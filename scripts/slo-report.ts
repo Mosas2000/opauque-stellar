@@ -75,6 +75,7 @@ function parseArgs(argv) {
     lookbackLedgers: Number(opt("lookback-ledgers", DEFAULT_LOOKBACK_LEDGERS)),
     publisherUrl: opt("publisher-url", process.env.SLO_PUBLISHER_URL),
     publisherDataDir: opt("publisher-data-dir", join(ROOT, "publisher", "data")),
+    aspUrl: opt("asp-url", process.env.SLO_ASP_URL),
     json: argv.includes("--json"),
   };
 }
@@ -170,7 +171,7 @@ function computeLag(triggerTime, publishTime, now) {
   return (now - Date.parse(triggerTime)) / 1000;
 }
 
-async function sampleAsp(server, manifest, lookbackLedgers) {
+async function sampleAsp(server, manifest, lookbackLedgers, aspUrl) {
   const poolId = manifest.contracts?.privacyPool?.id;
   if (!poolId) return { ok: false, reason: "privacyPool not deployed in manifest" };
 
@@ -184,12 +185,23 @@ async function sampleAsp(server, manifest, lookbackLedgers) {
   const now = Date.now();
   const lagSeconds = computeLag(deposit.latestCloseTime, publishTime, now);
 
+  let healthOk = null;
+  if (aspUrl) {
+    try {
+      const res = await fetch(`${aspUrl.replace(/\/$/, "")}/health`, { signal: AbortSignal.timeout(5000) });
+      healthOk = res.ok;
+    } catch {
+      healthOk = false;
+    }
+  }
+
   return {
     ok: true,
     at: new Date(now).toISOString(),
     lagSeconds,
     depositEvents: deposit.count,
     publishEvents: aspRoot.count + stateRoot.count,
+    healthOk,
   };
 }
 
@@ -307,7 +319,7 @@ function activityLine(service, s) {
   if (!s.ok) return null;
   switch (service) {
     case "asp":
-      return `${s.depositEvents} Deposit / ${s.publishEvents} root-publish event(s) observed`;
+      return `${s.depositEvents} Deposit / ${s.publishEvents} root-publish event(s) observed${s.healthOk === null ? "" : s.healthOk ? ", /health OK" : ", /health FAILED"}`;
     case "relayer":
       return `${s.jobsCreated} created / ${s.jobsSubmitted} submitted / ${s.jobsSlashed} slashed job event(s) observed`;
     case "publisher":
@@ -362,7 +374,7 @@ async function main() {
   const server = new rpc.Server(rpcUrl);
 
   const [aspSample, relayerSample, publisherSample] = await Promise.all([
-    sampleAsp(server, manifest, opts.lookbackLedgers).catch((err) => ({ ok: false, reason: err?.message ?? String(err) })),
+    sampleAsp(server, manifest, opts.lookbackLedgers, opts.aspUrl).catch((err) => ({ ok: false, reason: err?.message ?? String(err) })),
     sampleRelayer(server, manifest, opts.lookbackLedgers).catch((err) => ({ ok: false, reason: err?.message ?? String(err) })),
     samplePublisher(opts.publisherDataDir, opts.publisherUrl).catch((err) => ({ ok: false, reason: err?.message ?? String(err) })),
   ]);
