@@ -18,6 +18,8 @@
     "test:circuits": "npm --prefix circuits run test:regression --",
     "notices:generate": "tsx scripts/generate-third-party-notices.ts",
     "notices:verify": "tsx scripts/verify-third-party-notices.ts",
+    "generate:addresses": "tsx scripts/generate-sdk-addresses.ts",
+    "check:addresses": "tsx scripts/generate-sdk-addresses.ts --check",
     "check:links": "tsx scripts/check-repo-links.ts",
     "soak": "tsx scripts/soak-test.ts",
     "soak:short": "SOAK_DURATION=5m tsx scripts/soak-test.ts",

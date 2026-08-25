@@ -144,6 +144,12 @@ jobs:
       - name: Install SDK dependencies
         run: npm ci --prefix sdk
 
+      - name: Install root dependencies
+        run: npm ci
+
+      - name: SDK address drift check
+        run: npx tsx scripts/generate-sdk-addresses.ts --check
+
       - name: Lint
         run: npm run lint --prefix sdk
 
