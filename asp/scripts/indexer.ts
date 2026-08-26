@@ -1,4 +1,3 @@
-// @ts-nocheck
 /** ASP indexer CLI. Network, manifest, policy, cadence, and backoff are env-driven. */
 import { existsSync, readFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
@@ -10,7 +9,11 @@ import { allowlist, approveAll } from "../src/policy.ts";
 import { runPoolTick } from "../src/engine.ts";
 import { PublicationMonitor } from "../src/monitor.ts";
 import { ReorgGuard } from "../src/reorg-guard.ts";
+import type { AspMetrics } from "../src/metrics.ts";
 import { recordTickFailure, recordTickSuccess } from "../src/metrics.ts";
+import type { ChainAdapter } from "../src/types.ts";
+import type { Store } from "../src/store.ts";
+import type { Logger } from "../src/logger.ts";
 import { numberEnv } from "../src/env.ts";
 import { backoffDelayMs } from "../src/backoff.ts";
 import { correlationId, createLogger } from "../src/logger.ts";
