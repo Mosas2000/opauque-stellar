@@ -199,7 +199,8 @@ export function createPublisherHttpServer(deps: PublisherHttpDeps) {
         send(res, 413, { ok: false, error: err.message, code: err.code }, corsOrigin);
         return;
       }
-      send(res, 500, { ok: false, error: err instanceof Error ? err.message : String(err) }, corsOrigin);
+      console.error("[publisher] request error:", err);
+      send(res, 500, { ok: false, error: "Internal server error", code: "INTERNAL_ERROR" }, corsOrigin);
     }
   });
 }

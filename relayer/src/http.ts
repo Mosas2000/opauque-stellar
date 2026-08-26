@@ -265,7 +265,8 @@ export function createRelayerHttpServer(
         send(res, 413, { error: err.message, code: err.code });
         return;
       }
-      send(res, 400, { error: err instanceof Error ? err.message : String(err) });
+      console.error("[relayer] request error:", err);
+      send(res, 400, { error: "Bad request", code: "BAD_REQUEST" });
     }
   });
 }
