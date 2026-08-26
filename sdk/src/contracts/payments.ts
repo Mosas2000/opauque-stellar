@@ -8,6 +8,7 @@ import type { OpaqueSigner } from "../signer/index";
 import { addressToScVal, bytesToScVal, u64ToScVal } from "../rpc/scval";
 import { parseOldestLedgerFromRangeError } from "../rpc/diagnostics";
 import type { StealthAnnouncement } from "../crypto/index";
+import { assertValidStealthMetaAddress } from "../crypto/dksap";
 
 /** secp256k1 stealth scheme id, as registered on-chain. */
 export const SCHEME_ID_SECP256K1 = 1n;
@@ -46,6 +47,11 @@ export class StealthRegistry {
     schemeId?: bigint;
     signer: OpaqueSigner;
   }): Promise<string> {
+    // Reject a malformed/off-curve key before it ever reaches the chain
+    // (#736). The on-chain registry only checks length + prefix byte; a
+    // garbage key that passes that check would register successfully and
+    // be silently unusable to anyone who later tries to send to it.
+    assertValidStealthMetaAddress(opts.stealthMetaAddress);
     const source = await opts.signer.publicKey();
     return this.rpc.invoke({
       source,

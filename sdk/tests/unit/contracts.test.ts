@@ -20,6 +20,7 @@ import {
   addressToScVal,
   bytesToScVal,
   u64ToScVal,
+  keysToStealthMetaAddress,
   type ContractInvoker,
   type InvokeOptions,
 } from "../../src/index";
@@ -70,9 +71,18 @@ const bytes = (n: number, fill = 7) => new Uint8Array(n).fill(fill);
 const decoded = () => inv.last!.args.map(fromScVal);
 
 describe("payments bindings", () => {
+  // A real on-curve meta-address, not a bytes(66) filler: registerKeys now
+  // validates on-curve-ness client-side before submitting (#736), so a
+  // meta-address of arbitrary filler bytes is correctly rejected rather than
+  // reaching this stub invoker.
+  const validMetaAddress = keysToStealthMetaAddress(
+    bytes(32, 1),
+    bytes(32, 2),
+  ).metaAddress;
+
   it("registerKeys encodes [address, u64 scheme, bytes meta]", async () => {
     await new StealthRegistry(inv, C).registerKeys({
-      stealthMetaAddress: bytes(66),
+      stealthMetaAddress: validMetaAddress,
       signer,
     });
     expect(inv.last!.method).toBe("register_keys");
@@ -82,6 +92,30 @@ describe("payments bindings", () => {
     expect(a[0]).toBe(PK);
     expect(a[1]).toBe(1n); // default secp256k1 scheme
     expect((a[2] as Uint8Array).length).toBe(66);
+  });
+
+  it("registerKeys rejects a well-formed-prefix, off-curve meta-address (#736)", async () => {
+    // Prefix bytes are valid (0x02/0x03), but the 32-byte "x-coordinates" are
+    // 0xFF repeated - >= the secp256k1 field prime, so neither half can be a
+    // real curve point. The on-chain registry's own check is length+prefix
+    // only and would have accepted this; the SDK must reject it first.
+    const offCurveView = new Uint8Array(33);
+    offCurveView[0] = 0x02;
+    offCurveView.fill(0xff, 1);
+    const offCurveSpend = new Uint8Array(33);
+    offCurveSpend[0] = 0x03;
+    offCurveSpend.fill(0xff, 1);
+    const offCurveMetaAddress = new Uint8Array(66);
+    offCurveMetaAddress.set(offCurveView, 0);
+    offCurveMetaAddress.set(offCurveSpend, 33);
+
+    await expect(
+      new StealthRegistry(inv, C).registerKeys({
+        stealthMetaAddress: offCurveMetaAddress,
+        signer,
+      }),
+    ).rejects.toThrow(/secp256k1/);
+    expect(inv.last).toBeUndefined();
   });
 
   it("announce encodes [address, u64, bytes x3]", async () => {

@@ -13,6 +13,8 @@ import {
   computeStealthAddressAndViewTag,
   buildGhostAnnouncementPayload,
   buildDomainSeparatedMessage,
+  isValidCompressedSecp256k1PublicKey,
+  assertValidStealthMetaAddress,
   LEGACY_SETUP_MESSAGE,
   type Hex,
 } from "../stealth";
@@ -165,6 +167,71 @@ describe("Stealth Address Cryptography", () => {
       const shortHex = "0x" + "a".repeat(64); // Only 32 bytes, not 66
 
       expect(() => parseStealthMetaAddress(shortHex)).toThrow();
+    });
+  });
+
+  describe("isValidCompressedSecp256k1PublicKey / assertValidStealthMetaAddress (#736)", () => {
+    it("accepts a genuine on-curve compressed public key", () => {
+      const viewingKey = new Uint8Array(32).fill(1);
+      const { V } = keysToStealthMetaAddress(viewingKey, new Uint8Array(32).fill(2));
+
+      expect(isValidCompressedSecp256k1PublicKey(V)).toBe(true);
+    });
+
+    it("rejects a well-formed-prefix key whose x-coordinate is not a valid secp256k1 point", () => {
+      // Prefix is well-formed (0x02, matching the on-chain registry's own
+      // format check), but the 32-byte "x-coordinate" is 0xFF repeated —
+      // that value is >= the secp256k1 field prime p, so it can't be a
+      // canonical field element at all, let alone one satisfying
+      // y^2 = x^3 + 7. This is exactly the class of key the on-chain
+      // registry's length+prefix-only check (contracts/stealth-registry)
+      // would previously have accepted.
+      const offCurveKey = new Uint8Array(33);
+      offCurveKey[0] = 0x02;
+      offCurveKey.fill(0xff, 1);
+
+      expect(isValidCompressedSecp256k1PublicKey(offCurveKey)).toBe(false);
+    });
+
+    it("rejects a key with an invalid prefix byte", () => {
+      const badPrefixKey = new Uint8Array(33).fill(0x01);
+      badPrefixKey[0] = 0x04; // uncompressed-point prefix, not valid for a 33-byte key
+
+      expect(isValidCompressedSecp256k1PublicKey(badPrefixKey)).toBe(false);
+    });
+
+    it("rejects a key of the wrong length", () => {
+      expect(isValidCompressedSecp256k1PublicKey(new Uint8Array(32).fill(0x02))).toBe(
+        false,
+      );
+    });
+
+    it("assertValidStealthMetaAddress accepts a genuine meta-address", () => {
+      const { metaAddress } = keysToStealthMetaAddress(
+        new Uint8Array(32).fill(1),
+        new Uint8Array(32).fill(2),
+      );
+
+      expect(() => assertValidStealthMetaAddress(metaAddress)).not.toThrow();
+    });
+
+    it("assertValidStealthMetaAddress rejects a meta-address with an off-curve spend key", () => {
+      const { V } = keysToStealthMetaAddress(new Uint8Array(32).fill(1), new Uint8Array(32).fill(2));
+      const offCurveSpendKey = new Uint8Array(33);
+      offCurveSpendKey[0] = 0x03;
+      offCurveSpendKey.fill(0xff, 1);
+
+      const metaAddress = new Uint8Array(66);
+      metaAddress.set(V, 0);
+      metaAddress.set(offCurveSpendKey, 33);
+
+      expect(() => assertValidStealthMetaAddress(metaAddress)).toThrow(/spending key/);
+    });
+
+    it("assertValidStealthMetaAddress rejects the wrong overall length", () => {
+      expect(() => assertValidStealthMetaAddress(new Uint8Array(65))).toThrow(
+        /expected 66 bytes/,
+      );
     });
   });
 
