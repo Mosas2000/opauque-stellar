@@ -53,7 +53,7 @@ export class JobLedger {
         this.entries.set(entry.jobId.toLowerCase(), entry);
       }
     } catch (err) {
-      console.error("[job-ledger] failed to hydrate from store:", err);
+      log.error("job ledger hydrate failed", { error: err });
     }
   }
 
@@ -65,7 +65,7 @@ export class JobLedger {
   private persist(): void {
     if (!this.store) return;
     this.store.save(this.all()).catch((err) => {
-      console.error("[job-ledger] failed to persist:", err);
+      log.error("job ledger persist failed", { error: err });
     });
   }
 }
@@ -261,9 +261,9 @@ export class PayoutReconciler {
     for (const d of report.discrepancies) {
       if (d.outcome === "not_found") {
         this.ledger.remove(d.jobId);
-        console.warn(`[reconciler] removed stale ledger entry: ${d.jobId}`);
+        log.warn("removed stale ledger entry", { jobId: d.jobId });
       } else if (d.outcome === "discrepancy") {
-        console.warn(`[reconciler] boot discrepancy for ${d.jobId}: ${d.detail}`);
+        log.warn("boot discrepancy", { jobId: d.jobId, detail: d.detail });
       }
     }
     return report;

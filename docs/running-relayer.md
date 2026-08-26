@@ -256,3 +256,9 @@ location / {
 ## Security Notes
 
 The relayer operator key is a hot key with staked XLM. Use a dedicated account, keep `.env` locked down, run as a dedicated Linux user, and rotate immediately if leaked.
+
+## Network Selection and Logs
+
+Set `OPAQUE_NETWORK=testnet` or `OPAQUE_NETWORK=mainnet` before starting the relayer. The service loads `deployments/v1/<network>.json`, uses that manifest's `networkPassphrase`, and fails fast if the selected manifest has not deployed `relayerRegistry` yet. Mainnet remains blocked until its manifest is populated.
+
+Relayer service logs are JSON objects with `ts`, `level`, `service`, `correlationId` when present, and event fields. The shared logger redacts secrets, passphrases, tokens, signatures, and X25519 material.

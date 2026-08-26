@@ -143,3 +143,13 @@ sudo journalctl -u opaque-asp -f
 ## Security Notes
 
 Treat `ASP_SECRET` as a hot admin key. Store it with `chmod 600`, run under a dedicated Linux user, and never commit it. For production, replace approve-all with a documented policy and operational review process.
+
+## Network and Policy Selection
+
+Set `OPAQUE_NETWORK=testnet` or `OPAQUE_NETWORK=mainnet` before starting the ASP. The service loads `deployments/v1/<network>.json`, uses that manifest's `networkPassphrase`, and fails fast if the selected manifest has not deployed `privacyPool` yet. Mainnet is intentionally blocked until the mainnet manifest is populated.
+
+`ASP_POLICY=approveAll` keeps the demo policy. `ASP_POLICY=allowlist` enables operator-managed inclusion; provide comma/newline-separated indices directly in `ASP_ALLOWLIST_INDICES` or point that variable at a local allowlist file. Deposits absent from the allowlist are excluded from the association set and recorded in `data/state/<poolId>.json` under `rejectedIndices` for audit and appeals.
+
+The tick loop backs off after failures with `ASP_MAX_BACKOFF_MS` as the cap. `/health` and `/metrics` expose `consecutiveFailures` / `asp_consecutive_failures`; alerts fire after `ASP_FAILURE_ALERT_THRESHOLD` sustained failures and reset after a successful tick.
+
+ASP logs are JSON objects with `ts`, `level`, `service`, `correlationId`, and event-specific fields. Secrets, passphrases, tokens, signatures, and 32-byte hex values are redacted before emission.

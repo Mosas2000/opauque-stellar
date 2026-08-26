@@ -1,85 +1,91 @@
 // @ts-nocheck
-/**
- * ASP indexer CLI.
- *   npm run indexer:once   — single reconcile pass (used by the headless smoke)
- *   npm run indexer        — loop every ASP_INTERVAL_MS
- *
- * Config (env / .env): STELLAR_RPC_URL, ASP_SECRET (S... authority seed), ASP_INTERVAL_MS,
- * ASP_CONFIRMATIONS, ASP_MAX_ROOT_AGE_MS, optional IPFS_API_URL. Pool id + scope are
- * resolved from deployments/v1/testnet.json. Never run in CI (it sends live transactions).
- *
- * A `PublicationMonitor` (src/monitor.ts) and `ReorgGuard` (src/reorg-guard.ts) are wired
- * into every tick: the monitor alerts when the published root goes stale, and the guard
- * halts publication on a ledger continuity break instead of baking a suspect root into the
- * manifest.
- */
-import { readFileSync } from "node:fs";
+/** ASP indexer CLI. Network, manifest, policy, cadence, and backoff are env-driven. */
+import { existsSync, readFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { Keypair } from "@stellar/stellar-sdk";
 import { StellarChainAdapter } from "../src/chains/stellar.ts";
 import { FileStore } from "../src/store.ts";
-import { approveAll } from "../src/policy.ts";
+import { allowlist, approveAll } from "../src/policy.ts";
 import { runPoolTick } from "../src/engine.ts";
 import { PublicationMonitor } from "../src/monitor.ts";
 import { ReorgGuard } from "../src/reorg-guard.ts";
 import { recordTickFailure, recordTickSuccess } from "../src/metrics.ts";
 import { numberEnv } from "../src/env.ts";
+import { backoffDelayMs } from "../src/backoff.ts";
+import { correlationId, createLogger } from "../src/logger.ts";
+import { getDeploymentManifest, requireDeployedContract, resolveDeploymentNetwork } from "../../deployments/index.ts";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const REPO_ROOT = resolve(__dirname, "..", "..");
-const NETWORK_PASSPHRASE = "Test SDF Network ; September 2015";
-
-/** Default: 8x the default tick interval, generous enough to tolerate transient RPC lag. */
 const DEFAULT_MAX_ROOT_AGE_MS = 120_000;
+const DEFAULT_MAX_BACKOFF_MS = 120_000;
+const FAILURE_ALERT_THRESHOLD = 3;
+
+function parseAllowlist(raw: string | undefined): number[] {
+  if (!raw?.trim()) return [];
+  if (existsSync(raw.trim())) raw = readFileSync(raw.trim(), "utf8");
+  return raw
+    .split(/[\s,]+/)
+    .map((part) => part.trim())
+    .filter(Boolean)
+    .map((part) => {
+      const index = Number(part);
+      if (!Number.isInteger(index) || index < 0) throw new Error(`invalid ASP_ALLOWLIST_INDICES entry: ${part}`);
+      return index;
+    });
+}
+
+function loadPolicy() {
+  const name = (process.env.ASP_POLICY ?? "approveAll").trim().toLowerCase();
+  if (name === "approveall" || name === "approve-all") return approveAll;
+  if (name === "allowlist") return allowlist(parseAllowlist(process.env.ASP_ALLOWLIST_INDICES));
+  throw new Error(`unsupported ASP_POLICY "${process.env.ASP_POLICY}"; expected approveAll or allowlist`);
+}
 
 export function loadConfig() {
-  const manifest = JSON.parse(
-    readFileSync(join(REPO_ROOT, "deployments", "v1", "testnet.json"), "utf8"),
-  );
-  const poolId = manifest.contracts?.privacyPool?.id;
+  const network = resolveDeploymentNetwork(process.env.OPAQUE_NETWORK ?? process.env.STELLAR_NETWORK ?? "testnet");
+  const manifest = getDeploymentManifest(network) as any;
+  const poolId = process.env.PRIVACY_POOL_ID?.trim() || requireDeployedContract(manifest, "privacyPool", "ASP");
   const scope = manifest.wiring?.privacyPool?.scope ?? 1;
-  if (!poolId) throw new Error("privacyPool not deployed (deployments/v1/testnet.json)");
-
   const secret = process.env.ASP_SECRET?.trim();
   if (!secret) throw new Error("set ASP_SECRET (the ASP authority S... seed)");
 
   return {
+    network,
+    networkPassphrase: process.env.NETWORK_PASSPHRASE?.trim() || manifest.networkPassphrase,
+    policy: loadPolicy(),
     poolId,
     scope,
     authority: Keypair.fromSecret(secret),
     rpcUrl: process.env.STELLAR_RPC_URL ?? manifest.rpcUrl ?? "https://soroban-testnet.stellar.org",
     deploymentLedger: manifest.deploymentLedger ?? undefined,
     intervalMs: numberEnv("ASP_INTERVAL_MS", 15000, { min: 1 }),
+    maxBackoffMs: numberEnv("ASP_MAX_BACKOFF_MS", DEFAULT_MAX_BACKOFF_MS, { min: 1 }),
+    failureAlertThreshold: numberEnv("ASP_FAILURE_ALERT_THRESHOLD", FAILURE_ALERT_THRESHOLD, { min: 1, integer: true }),
     confirmations: numberEnv("ASP_CONFIRMATIONS", 1, { min: 0, integer: true }),
     maxRootAgeMs: numberEnv("ASP_MAX_ROOT_AGE_MS", DEFAULT_MAX_ROOT_AGE_MS, { min: 1 }),
-    dataDir: join(__dirname, "..", "data"),
+    dataDir: process.env.ASP_DATA_DIR ? resolve(process.env.ASP_DATA_DIR) : join(__dirname, "..", "data"),
   };
 }
 
-/** Alerts (via stderr) when the last published root exceeds `cfg.maxRootAgeMs`. */
 export function createPublicationMonitor(cfg, overrides = {}) {
   return new PublicationMonitor({
     maxRootAgeMs: cfg.maxRootAgeMs,
-    onAlert: (alert) => {
-      console.error(`[ALERT] ${alert.message}`);
-    },
+    onAlert: (alert) => createLogger("asp", { correlationId: "monitor" }).warn("publication stale", { alert }),
     ...overrides,
   });
 }
 
-/** Halts publication (via the engine) and logs when ledger continuity breaks. */
 export function createReorgGuard(overrides = {}) {
   return new ReorgGuard({
-    onDivergence: (event) => {
-      console.error(`[REORG] ${event.message}`);
-    },
+    onDivergence: (event) => createLogger("asp", { correlationId: "reorg" }).error("ledger divergence", { event }),
     ...overrides,
   });
 }
 
-export async function tick(cfg, adapter, store, monitor, guard, metrics = undefined) {
+export async function tick(cfg, adapter, store, monitor, guard, metrics = undefined, parentLogger = createLogger("asp")) {
   const tickStart = Date.now();
+  const log = parentLogger.child({ correlationId: correlationId("asp-tick"), poolId: cfg.poolId, network: cfg.network, policy: cfg.policy?.name ?? "approve-all" });
   let res;
   try {
     res = await runPoolTick({
@@ -87,7 +93,7 @@ export async function tick(cfg, adapter, store, monitor, guard, metrics = undefi
       scope: cfg.scope,
       adapter,
       store,
-      policy: approveAll,
+      policy: cfg.policy ?? approveAll,
       dataDir: cfg.dataDir,
       confirmations: cfg.confirmations,
       publicationMonitor: monitor,
@@ -98,17 +104,21 @@ export async function tick(cfg, adapter, store, monitor, guard, metrics = undefi
     throw err;
   }
   if (metrics) recordTickSuccess(metrics, res, Date.now() - tickStart);
-  const when = new Date().toISOString();
   const actions = [
     res.published ? "ASP_PUBLISHED" : null,
     res.statePublished ? "STATE_PUBLISHED" : null,
     res.haltedForReorg ? "HALTED_FOR_REORG" : null,
   ].filter(Boolean);
-  console.log(
-    `[${when}] approved=${res.approvedCount} (+${res.newlyApproved}) ` +
-      `asp=${res.localRoot.slice(0, 14)}… stateLeaves=${res.stateLeafCount ?? "n/a"} ` +
-      (actions.length > 0 ? actions.join(" ") : "in-sync"),
-  );
+  log.info("tick complete", {
+    approved: res.approvedCount,
+    newlyApproved: res.newlyApproved,
+    rejected: res.rejectedCount,
+    newlyRejected: res.newlyRejected,
+    deferred: res.deferredCount,
+    aspRoot: res.localRoot,
+    stateLeaves: res.stateLeafCount ?? null,
+    actions,
+  });
   return res;
 }
 
@@ -117,7 +127,7 @@ async function main() {
   const cfg = loadConfig();
   const adapter = new StellarChainAdapter({
     rpcUrl: cfg.rpcUrl,
-    networkPassphrase: NETWORK_PASSPHRASE,
+    networkPassphrase: cfg.networkPassphrase,
     poolId: cfg.poolId,
     scope: cfg.scope,
     authority: cfg.authority,
@@ -127,30 +137,35 @@ async function main() {
   const store = new FileStore(cfg.dataDir);
   const monitor = createPublicationMonitor(cfg);
   const guard = createReorgGuard();
+  const log = createLogger("asp", { poolId: cfg.poolId, network: cfg.network, policy: cfg.policy.name });
 
   if (once) {
-    await tick(cfg, adapter, store, monitor, guard);
+    await tick(cfg, adapter, store, monitor, guard, undefined, log);
     return;
   }
-  console.log(
-    `ASP indexer loop every ${cfg.intervalMs}ms for pool ${cfg.poolId} ` +
-      `(maxRootAgeMs=${cfg.maxRootAgeMs})`,
-  );
+
+  log.info("indexer loop started", { intervalMs: cfg.intervalMs, maxBackoffMs: cfg.maxBackoffMs, maxRootAgeMs: cfg.maxRootAgeMs });
+  let failureStreak = 0;
   // eslint-disable-next-line no-constant-condition
   for (;;) {
     try {
-      await tick(cfg, adapter, store, monitor, guard);
+      await tick(cfg, adapter, store, monitor, guard, undefined, log);
+      failureStreak = 0;
     } catch (e) {
-      console.error(`tick error: ${e?.message ?? e}`);
+      failureStreak += 1;
+      log.error("tick failed", { error: e, failureStreak });
+      if (failureStreak >= cfg.failureAlertThreshold) {
+        log.error("failure streak alert", { failureStreak, threshold: cfg.failureAlertThreshold });
+      }
     }
-    await new Promise((r) => setTimeout(r, cfg.intervalMs));
+    const delayMs = backoffDelayMs(failureStreak, { baseIntervalMs: cfg.intervalMs, maxIntervalMs: cfg.maxBackoffMs });
+    await new Promise((r) => setTimeout(r, delayMs));
   }
 }
 
-// Only auto-run when executed directly (`npm run indexer[:once]`), not when imported by tests.
 if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
   main().catch((e) => {
-    console.error(e?.message ?? e);
+    createLogger("asp").error("indexer crashed", { error: e });
     process.exit(1);
   });
 }

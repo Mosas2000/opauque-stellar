@@ -88,13 +88,13 @@ export class FileStore implements Store {
         } else {
           this.quarantineFile(name, raw, result.errors, now);
           unlinkSync(p);
-          console.warn(`quarantined invalid inbox file ${name}: ${result.errors.join("; ")}`);
+          log.warn("quarantined invalid inbox file", { name, errors: result.errors });
         }
       } catch (err) {
         const raw = { parseError: true };
         this.quarantineFile(name, raw, [`parse error: ${err instanceof Error ? err.message : String(err)}`], now);
         unlinkSync(p);
-        console.warn(`quarantined unparseable inbox file ${name}`);
+        log.warn("quarantined unparseable inbox file", { name });
       }
     }
     return out;
@@ -197,7 +197,7 @@ export class MemoryStore implements Store {
         valid.push(structuredClone(result.commitment));
       } else {
         this.quarantineFile(item.id ?? "unknown", item, result.errors, effectiveNow);
-        console.warn(`quarantined invalid in-memory inbox item: ${result.errors.join("; ")}`);
+        log.warn("quarantined invalid in-memory inbox item", { id: item.id ?? "unknown", errors: result.errors });
       }
     }
     this.inbox = valid;

@@ -18,8 +18,11 @@ import { StellarChainAdapter } from "../src/chains/stellar.ts";
 import { FileStore } from "../src/store.ts";
 import { createAspMetrics, formatPrometheusMetrics, rootAgeMs } from "../src/metrics.ts";
 import { createPublicationMonitor, createReorgGuard, loadConfig, tick } from "./indexer.ts";
+import { backoffDelayMs } from "../src/backoff.ts";
+import { createLogger } from "../src/logger.ts";
+import { backoffDelayMs } from "../src/backoff.ts";
+import { createLogger } from "../src/logger.ts";
 
-const NETWORK_PASSPHRASE = "Test SDF Network ; September 2015";
 
 function send(res, status, body, corsOrigin, contentType = "application/json") {
   res.writeHead(status, {
@@ -39,7 +42,7 @@ async function main() {
 
   const adapter = new StellarChainAdapter({
     rpcUrl: cfg.rpcUrl,
-    networkPassphrase: NETWORK_PASSPHRASE,
+    networkPassphrase: cfg.networkPassphrase,
     poolId: cfg.poolId,
     scope: cfg.scope,
     authority: cfg.authority,
@@ -51,15 +54,21 @@ async function main() {
   const guard = createReorgGuard();
   const metrics = createAspMetrics();
 
+  const log = createLogger("asp", { poolId: cfg.poolId, network: cfg.network, policy: cfg.policy.name });
   async function loop() {
+    let failureStreak = 0;
     // eslint-disable-next-line no-constant-condition
     for (;;) {
       try {
-        await tick(cfg, adapter, store, monitor, guard, metrics);
+        await tick(cfg, adapter, store, monitor, guard, metrics, log);
+        failureStreak = 0;
       } catch (e) {
-        console.error(`tick error: ${e?.message ?? e}`);
+        failureStreak += 1;
+        log.error("tick failed", { error: e, failureStreak });
+        if (failureStreak >= cfg.failureAlertThreshold) log.error("failure streak alert", { failureStreak, threshold: cfg.failureAlertThreshold });
       }
-      await new Promise((r) => setTimeout(r, cfg.intervalMs));
+      const delayMs = backoffDelayMs(failureStreak, { baseIntervalMs: cfg.intervalMs, maxIntervalMs: cfg.maxBackoffMs });
+      await new Promise((r) => setTimeout(r, delayMs));
     }
   }
   loop();
@@ -85,6 +94,7 @@ async function main() {
             poolId: cfg.poolId,
             totalTicks: metrics.totalTicks,
             totalFailures: metrics.totalFailures,
+            consecutiveFailures: metrics.consecutiveFailures,
             lastTickAt: metrics.lastTickAt,
             lastTickError: metrics.lastTickError,
             lastPublishAt: metrics.lastPublishAt,
@@ -119,11 +129,11 @@ async function main() {
   });
 
   server.listen(port, host, () => {
-    console.log(`ASP HTTP server listening on http://${host}:${port} (pool=${cfg.poolId})`);
+    log.info("http server listening", { endpoint: `http://${host}:${port}` });
   });
 }
 
 main().catch((err) => {
-  console.error(err?.message ?? err);
+  createLogger("asp").error("http server crashed", { error: err });
   process.exit(1);
 });

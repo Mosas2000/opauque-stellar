@@ -6,6 +6,7 @@ export interface AspMetrics {
   startedAt: string;
   totalTicks: number;
   totalFailures: number;
+  consecutiveFailures: number;
   totalPublished: number;
   totalStatePublished: number;
   totalHaltedForReorg: number;
@@ -22,6 +23,7 @@ export function createAspMetrics(): AspMetrics {
     startedAt: new Date().toISOString(),
     totalTicks: 0,
     totalFailures: 0,
+    consecutiveFailures: 0,
     totalPublished: 0,
     totalStatePublished: 0,
     totalHaltedForReorg: 0,
@@ -52,6 +54,7 @@ export function recordTickSuccess(
   metrics.lastTickAt = now();
   metrics.lastTickDurationMs = durationMs;
   metrics.lastTickError = null;
+  metrics.consecutiveFailures = 0;
   if (res.published) metrics.totalPublished += 1;
   if (res.statePublished) metrics.totalStatePublished += 1;
   if (res.published || res.statePublished) {
@@ -70,6 +73,7 @@ export function recordTickFailure(
 ): void {
   metrics.totalTicks += 1;
   metrics.totalFailures += 1;
+  metrics.consecutiveFailures += 1;
   metrics.lastTickAt = now();
   metrics.lastTickDurationMs = durationMs;
   metrics.lastTickError = err instanceof Error ? err.message : String(err);
@@ -96,7 +100,11 @@ export function formatPrometheusMetrics(metrics: AspMetrics): string {
 
   counter("Total number of reconcile ticks attempted.", "asp_total_ticks", metrics.totalTicks);
   counter("Total number of failed reconcile ticks.", "asp_total_failures", metrics.totalFailures);
-  counter("Total number of ASP root publications.", "asp_total_published", metrics.totalPublished);
+  gauge(
+    "Number of consecutive failed reconcile ticks.",
+    "asp_consecutive_failures",
+    metrics.consecutiveFailures,
+  );  counter("Total number of ASP root publications.", "asp_total_published", metrics.totalPublished);
   counter(
     "Total number of pool state root publications.",
     "asp_total_state_published",

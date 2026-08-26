@@ -37,6 +37,10 @@ export interface PoolState {
   scope: number;
   /** Deposit indices that have been approved, in approval order (== tree leaf order). */
   approvedIndices: number[];
+  /** Deposit indices explicitly excluded by policy, for audit and appeals. */
+  rejectedIndices?: number[];
+  /** Deposit indices deferred for a later screening pass. */
+  deferredIndices?: number[];
   /** Highest deposit index seen (so ticks resume without rescanning from genesis). */
   lastIndex: number;
   /** Ledger cursor for incremental event reads. */

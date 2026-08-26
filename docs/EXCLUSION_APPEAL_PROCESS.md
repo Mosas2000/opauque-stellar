@@ -95,3 +95,9 @@ To minimize exclusion risk:
 **Version**: 1.0  
 **Last updated**: 2026-07-25  
 **Status**: Draft — operator contact details TBD
+
+## ASP Allowlist Exclusions
+
+When `ASP_POLICY=allowlist` is active, any finalized deposit index absent from the operator allowlist is rejected and omitted from the published association set. Operators should keep the allowlist source under change control and use the persisted `rejectedIndices` in `asp/data/state/<poolId>.json` as the appeal/audit reference.
+
+If an appeal is accepted, add the deposit index to `ASP_ALLOWLIST_INDICES` or the configured allowlist file, restart or redeploy the ASP with the updated configuration, and let the next tick republish the association-set root. The published manifest will then include the appealed index, and clients can prove against the updated root.

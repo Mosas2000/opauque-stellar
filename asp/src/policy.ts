@@ -14,13 +14,18 @@ export const approveAll: Policy = {
   },
 };
 
-/** Allowlist stub: approve only deposits whose index is in the set, defer the rest. */
+/** Allowlist policy: approve listed deposit indices and exclude every unlisted deposit. */
 export function allowlist(indices: Iterable<number>): Policy {
   const allowed = new Set(indices);
   return {
     name: "allowlist",
     screen(deposit: Deposit): PolicyVerdict {
-      return allowed.has(deposit.index) ? "approve" : "defer";
+      return allowed.has(deposit.index) ? "approve" : "reject";
+    },
+    reason(deposit: Deposit): string {
+      return allowed.has(deposit.index)
+        ? "deposit index is present in the operator allowlist"
+        : "deposit index is absent from the operator allowlist; see docs/EXCLUSION_APPEAL_PROCESS.md";
     },
   };
 }

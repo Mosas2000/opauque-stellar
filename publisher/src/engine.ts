@@ -60,7 +60,7 @@ function mergeLeaves(existing: LeafCommitment[], incoming: LeafCommitment[]): {
     if (existingById || existingByLeaf) {
       identityCollisions.push(leaf);
       const reason = existingById ? `id "${leaf.id}" already in tree` : `leaf "${leaf.leaf.slice(0, 14)}..." already in tree`;
-      console.warn(`identity collision: ${reason} — incoming leaf flagged, not inserted`);
+      log.warn("identity collision", { reason, leafId: leaf.id, leaf: leaf.leaf });
       continue;
     }
     byId.set(leaf.id, leaf);
@@ -109,7 +109,7 @@ export async function runPublisherTick(cfg: PublisherTickConfig, metrics?: Publi
     metrics.totalDuplicateResubmissions += duplicateResubmissions;
     metrics.totalIdentityCollisions += identityCollisions.length;
     if (identityCollisions.length > 0) {
-      console.warn(`tick: ${identityCollisions.length} identity collision(s) flagged this tick`);
+      log.warn("identity collisions flagged", { count: identityCollisions.length });
     }
   }
 
