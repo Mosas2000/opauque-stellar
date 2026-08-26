@@ -61,6 +61,31 @@ CI runs `npm audit` on every PR against both the root and `frontend/` workspaces
 (`ci.yml`, supply-chain job) to catch known vulnerabilities in production
 dependencies.
 
+## Static analysis (CodeQL)
+
+[`.github/workflows/codeql.yml`](.github/workflows/codeql.yml) analyzes
+JavaScript/TypeScript and Rust on every pull request to `main` and every Monday
+at 06:30 UTC. Results are published in the repository's Code scanning alerts.
+
+### Finding triage
+
+The repository owner (`@collinsadi`) or a security maintainer explicitly
+delegated by the owner is responsible for reviewing and dismissing CodeQL
+findings. Pull-request authors may investigate and propose a resolution, but
+may not dismiss their own finding without that review.
+
+- Triage new alerts promptly; critical and high-severity findings are assessed
+  before the affected change is merged.
+- Fix confirmed, reachable findings in a tracked pull request or private
+  security advisory, as appropriate.
+- Dismiss an alert only with GitHub's matching reason — `false positive`,
+  `used in tests`, or `won't fix` — and a dismissal comment that identifies the
+  affected code, explains why it is not exploitable, and links to the relevant
+  issue, advisory, test, or compensating control.
+- `Won't fix` requires an explicit, documented risk acceptance by the
+  repository owner, including a review date. Reopen dismissed alerts when the
+  code, threat model, or mitigating control changes.
+
 ## Upgrade governance
 
 Contract upgrade authority, process, and user-visible guarantees are documented in [docs/UPGRADE_GOVERNANCE.md](docs/UPGRADE_GOVERNANCE.md).
