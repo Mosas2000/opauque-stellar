@@ -1,4 +1,3 @@
-// @ts-nocheck
 /**
  * Stellar/Soroban chain adapter: reads finalized `Deposit` events from the privacy-pool
  * contract, rebuilds public pool state leaves, and posts roots signed by the ASP authority
@@ -139,7 +138,7 @@ export class StellarChainAdapter implements ChainAdapter {
   async readDeposits(afterIndex: number, fromLedger: number): Promise<Deposit[]> {
     const startLedger = await this.resolveEventStartLedger(fromLedger);
     const depositTopic = xdr.ScVal.scvSymbol("Deposit").toXDR("base64");
-    const filters = [{ type: "contract", contractIds: [this.cfg.poolId], topics: [[depositTopic, "*"]] }];
+    const filters: rpc.Api.EventFilter[] = [{ type: "contract", contractIds: [this.cfg.poolId], topics: [[depositTopic, "*"]] }];
 
     const deposits: Deposit[] = [];
     let cursor: string | undefined;
@@ -201,7 +200,7 @@ export class StellarChainAdapter implements ChainAdapter {
       [depositTopic, true],
       [withdrawTopic, false],
     ] as const) {
-      const filters = [{ type: "contract", contractIds: [this.cfg.poolId], topics: [[topic, "*"]] }];
+      const filters: rpc.Api.EventFilter[] = [{ type: "contract", contractIds: [this.cfg.poolId], topics: [[topic, "*"]] }];
       let cursor: string | undefined;
       let prevCursor: string | undefined;
       // Follow the cursor until it stops advancing; getEvents returns many EMPTY

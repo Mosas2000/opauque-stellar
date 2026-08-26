@@ -1,4 +1,3 @@
-// @ts-nocheck
 /**
  * ASP HTTP server: runs the reconcile loop in the background and exposes health, metrics,
  * and the current association-set manifest so an orchestrator can probe it and Prometheus
