@@ -7,7 +7,7 @@ import {
 
 describe("artifactHashes", () => {
   it("exposes pinned scanner WASM hash", () => {
-    expect(SCANNER_ARTIFACT_HASHES.cryptography_bg_wasm).toMatch(/^[a-f0-9]{64}$/);
+    expect(SCANNER_ARTIFACT_HASHES.opauque_scanner_bg_wasm).toMatch(/^[a-f0-9]{64}$/);
   });
 
   it("ties contract VK hash binding to zkey hash for v2", () => {

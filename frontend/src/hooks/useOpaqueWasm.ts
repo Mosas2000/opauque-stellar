@@ -112,7 +112,7 @@ export function useOpaqueWasm(): UseOpaqueWasmReturn {
         setError(null);
         setWasm(null);
 
-        const loadedModule = await (Function('return import("/pkg/cryptography.js")')() as Promise<
+        const loadedModule = await (Function('return import("/pkg/opauque_scanner.js")')() as Promise<
           Record<string, unknown> & { default: () => Promise<void> }
         >);
 

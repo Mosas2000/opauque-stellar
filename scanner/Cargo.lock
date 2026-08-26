@@ -661,7 +661,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "cryptography"
+name = "opauque-scanner"
 version = "0.1.0"
 dependencies = [
  "alloy-primitives",

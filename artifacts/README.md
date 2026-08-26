@@ -8,7 +8,7 @@ Production builds **do not commit** large circuit binaries under `frontend/publi
 
 | Artifact | Built from | Consumed by |
 |:---------|:-----------|:------------|
-| Scanner WASM (`cryptography_bg.wasm`) | `scanner/` via `wasm-pack` | `frontend/public/pkg/` |
+| Scanner WASM (`opauque_scanner_bg.wasm`) | `scanner/` via `wasm-pack` | `frontend/public/pkg/` |
 | V1 witness WASM + zkey | `circuits/stealth_attestation.circom` + trusted setup | `frontend/public/circuits/` |
 | V2 witness WASM + zkey | `circuits/v2/stealth_reputation.circom` + trusted setup | `frontend/public/circuits/v2/` |
 | Contract VK bytes | zkey → `snarkjs zkey export verificationkey` → `encode_vk.mjs` | `contracts/groth16-verifier/src/lib.rs` |
@@ -32,7 +32,7 @@ npm run update:artifacts
 Frontend `npm run build` runs `prepare:frontend` automatically (build scanner, fetch circuits,
 verify scanner runtime artifacts).
 
-`cryptography_bg.wasm` is pinned to a single SHA-256 hash. The scanner build is
+`opauque_scanner_bg.wasm` is pinned to a single SHA-256 hash. The scanner build is
 byte-reproducible when using the pinned Rust toolchain (`scanner/rust-toolchain.toml`)
 with `wasm-pack --mode no-install`. CI enforces the exact hash via both manifest
 verification and a dedicated byte-stability rebuild check.

@@ -6,12 +6,12 @@
     "buildCommand": "wasm-pack build --target web --out-dir ../frontend/public/pkg",
     "buildCwd": "scanner",
     "files": {
-      "cryptography_bg.wasm": {
-        "path": "frontend/public/pkg/cryptography_bg.wasm",
+      "opauque_scanner_bg.wasm": {
+        "path": "frontend/public/pkg/opauque_scanner_bg.wasm",
         "sha256": "31840c413d0440937c5e56ecbb4cb8695bbc4c198d6418c26e99a3dda2a44620"
       },
-      "cryptography.js": {
-        "path": "frontend/public/pkg/cryptography.js",
+      "opauque_scanner.js": {
+        "path": "frontend/public/pkg/opauque_scanner.js",
         "sha256": "9c05bb56c453b35dc57e516f3a7fffff3f657f7dac569ecd38873240c55f85fa"
       }
     }

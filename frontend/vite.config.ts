@@ -155,6 +155,6 @@ export default defineConfig({
   },
   optimizeDeps: {
     // Prevent Vite from pre-bundling/corrupting the WASM binary
-    exclude: ['cryptography', '@wasm/cryptography.js', '/pkg/cryptography.js'],
+    exclude: ['opauque-scanner', '@wasm/opauque_scanner.js', '/pkg/opauque_scanner.js'],
   },
 })

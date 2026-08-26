@@ -55,6 +55,9 @@ every binary that ships (scanner WASM, circuit keys) is hash-pinned.
 | `deployments/` | Canonical contract manifests (source of truth) | JSON |
 | `artifacts/` | Pinned artifact manifest (scanner WASM and circuit hashes) | JSON |
 
+See [`scripts/README.md`](../scripts/README.md) for a complete index of maintenance
+scripts, their purpose, usage, and whether they are release- or deploy-critical.
+
 ---
 
 ## 3. Prerequisites

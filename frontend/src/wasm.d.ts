@@ -1,7 +1,7 @@
 /**
- * Type declaration for the WASM module loaded via Vite alias @wasm/cryptography.js
+ * Type declaration for the WASM module loaded via Vite alias @wasm/opauque_scanner.js
  */
-declare module '@wasm/cryptography.js' {
+declare module '@wasm/opauque_scanner.js' {
   /** Async init (loads .wasm); call this before using any other exports */
   export default function init(module_or_path?: unknown): Promise<unknown>;
   export function initSync(module: unknown): unknown;

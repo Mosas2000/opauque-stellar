@@ -41,7 +41,7 @@ interface WasmScannerModule {
 }
 
 function loadWasmModule(): WasmScannerModule {
-  const entry = path.join(WASM_NODE_PKG, "cryptography.js");
+  const entry = path.join(WASM_NODE_PKG, "opauque_scanner.js");
   if (!fs.existsSync(entry)) {
     console.error(
       `[benchmark-scan-wasm] WASM module not found at ${entry}.\n` +
