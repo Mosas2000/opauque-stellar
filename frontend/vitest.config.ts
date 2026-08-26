@@ -13,8 +13,25 @@ export default defineConfig({
   },
   test: {
     include: ["src/**/*.test.ts", "src/**/*.test.tsx"],
-    environment: "node",
+    environment: "jsdom",
     testTimeout: 60_000,
     hookTimeout: 30_000,
+    globals: true,
+    coverage: {
+      provider: "v8",
+      reporter: ["text", "lcov"],
+      thresholds: {
+        lines: 70,
+        functions: 70,
+        branches: 65,
+        statements: 70,
+      },
+      include: ["src/lib/**/*.ts"],
+      exclude: [
+        "src/lib/**/__tests__/**",
+        "src/lib/**/*.d.ts",
+        "src/lib/**/index.ts",
+      ],
+    },
   },
 });
