@@ -5,6 +5,7 @@
 import { nativeToScVal } from "@stellar/stellar-sdk";
 import { deployedAddresses } from "../contracts/deployedAddresses";
 import { bytesToScVal, invokeContractMethod, u64ToScVal } from "./stellar";
+import { assertValidStealthMetaAddress } from "./stealth";
 
 export const ANNOUNCER_CONTRACT_ID = deployedAddresses.stealthAnnouncer;
 export const REGISTRY_CONTRACT_ID = deployedAddresses.stealthRegistry;
@@ -40,6 +41,11 @@ export async function registerStealthKeys(opts: {
   stealthMetaAddress: Uint8Array;
   signTransaction: (xdr: string) => Promise<string>;
 }): Promise<string> {
+  // Reject a malformed/off-curve key before it ever reaches the chain (#736).
+  // The on-chain registry only checks length + prefix byte; a garbage key
+  // that passes that check would register successfully and be silently
+  // unusable to anyone who later tries to send to it.
+  assertValidStealthMetaAddress(opts.stealthMetaAddress);
   return invokeContractMethod({
     sourcePublicKey: opts.sourcePublicKey,
     contractId: REGISTRY_CONTRACT_ID,

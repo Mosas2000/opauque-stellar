@@ -104,6 +104,59 @@ export function stealthMetaAddressToHex(metaAddress: Uint8Array): Hex {
 }
 
 /**
+ * Returns whether `bytes` is a well-formed, on-curve compressed secp256k1 public
+ * key: exactly 33 bytes, a 0x02/0x03 prefix, and an x-coordinate that actually
+ * decodes to a point on the curve. `ProjectivePoint.fromHex` validates all of
+ * this (including canonical field-element range and the curve equation
+ * y^2 = x^3 + 7); it throws on anything else, which this turns into a boolean
+ * so callers don't need a try/catch at every call site.
+ *
+ * Registering a garbage-but-well-prefixed key (issue #736) previously slipped
+ * through the on-chain registry's format-only check, silently making the
+ * registrant's meta-address unusable to anyone who tries to send to it. This
+ * is the client-side gate: see contracts.ts's registerStealthKeys and
+ * contracts/stealth-registry/src/lib.rs's is_valid_secp256k1_pubkey doc
+ * comment for the corresponding on-chain trust-boundary note.
+ */
+export function isValidCompressedSecp256k1PublicKey(bytes: Uint8Array): boolean {
+  if (bytes.length !== 33 || (bytes[0] !== 0x02 && bytes[0] !== 0x03)) {
+    return false;
+  }
+  try {
+    CURVE.ProjectivePoint.fromHex(bytes);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Validates a 66-byte stealth meta-address (compressed view key || compressed
+ * spend key) before it is submitted for registration. Throws with a specific
+ * message identifying which half failed, rather than letting a bad key reach
+ * the chain and only surface as a confusing failure for a future sender.
+ */
+export function assertValidStealthMetaAddress(metaAddress: Uint8Array): void {
+  if (metaAddress.length !== 66) {
+    throw new Error(
+      `Invalid stealth meta-address: expected 66 bytes, got ${metaAddress.length}`,
+    );
+  }
+  const viewKey = metaAddress.slice(0, 33);
+  const spendKey = metaAddress.slice(33, 66);
+  if (!isValidCompressedSecp256k1PublicKey(viewKey)) {
+    throw new Error(
+      "Invalid stealth meta-address: viewing key is not a valid secp256k1 point",
+    );
+  }
+  if (!isValidCompressedSecp256k1PublicKey(spendKey)) {
+    throw new Error(
+      "Invalid stealth meta-address: spending key is not a valid secp256k1 point",
+    );
+  }
+}
+
+/**
  * Parse a recipient stealth meta-address into viewing and spending public keys.
  * Format: first 33 bytes = compressed viewing public key V, next 33 = compressed S.
  */

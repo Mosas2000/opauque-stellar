@@ -59,6 +59,28 @@ fn nonce_key(registrant: &Address) -> (Symbol, Address) {
     (Symbol::new(registrant.env(), "nonce"), registrant.clone())
 }
 
+/// Checks the *encoding* of a compressed secp256k1 public key (length +
+/// prefix byte) only. It does NOT check that the 32-byte x-coordinate
+/// actually decodes to a point on the curve (issue #736) — that requires
+/// either a `no_std`-compatible elliptic-curve library or hand-rolled 256-bit
+/// modular arithmetic (a modular square root to test y^2 = x^3 + 7), neither
+/// of which is included here.
+///
+/// Trust boundary (documented per #736's acceptance criteria, since on-chain
+/// enforcement was deliberately not added): `register_keys` requires
+/// `registrant.require_auth()`, so only the registrant's own signed
+/// transaction can register a key for their own address. The blessed clients
+/// (frontend `registerStealthKeys` in `frontend/src/lib/contracts.ts` and SDK
+/// `StealthRegistry.registerKeys` in `sdk/src/contracts/payments.ts`) both
+/// validate the key is a genuine on-curve point via
+/// `@noble/curves`'s `ProjectivePoint.fromHex` (which throws on any invalid
+/// encoding, including an off-curve x-coordinate) *before* submitting the
+/// registration transaction, so a garbage key can't reach this contract
+/// through the standard flow. A user who signs a registration transaction
+/// built by a modified/malicious client is not protected by this check —
+/// that residual risk is accepted rather than closed on-chain here, since a
+/// correctness bug in untested hand-rolled on-chain curve arithmetic is a
+/// worse outcome than the format-only check this function already provides.
 fn is_valid_secp256k1_pubkey(bytes: &Bytes) -> bool {
     if bytes.len() != 33 {
         return false;
