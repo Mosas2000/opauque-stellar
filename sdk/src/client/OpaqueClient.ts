@@ -26,6 +26,7 @@ import {
 import {
   AttestationEngine,
   Groth16Verifier,
+  MultisigAdmin,
   PrivacyPool,
   RelayerRegistry,
   ReputationVerifier,
@@ -102,6 +103,7 @@ export class OpaqueClient implements OpaqueClientContext {
       reputationVerifier: new ReputationVerifier(this.rpc, c.reputationVerifier),
       privacyPool: new PrivacyPool(this.rpc, c.privacyPool),
       relayerRegistry: new RelayerRegistry(this.rpc, c.relayerRegistry),
+      multisigAdmin: c.multisigAdmin ? new MultisigAdmin(this.rpc, c.multisigAdmin) : undefined,
     };
 
     this.schemas = new SchemasService(this);

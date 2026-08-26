@@ -124,6 +124,41 @@ parameter position expects — it must be the multisig contract's own address,
 since that is what the target's `require_auth()` check will be satisfied
 against.
 
+## Scripted approval via the SDK
+
+Once a multisig is deployed (`config.contracts.multisigAdmin` set — not yet
+the case on any network, see `deployments/v1/*.json`), operators can script
+the propose/approve flow through `@opaquecash/stellar`'s `MultisigAdmin`
+binding instead of `soroban contract invoke`:
+
+```ts
+import { OpaqueClient, keypairSigner, bytesToScVal } from "@opaquecash/stellar";
+
+const opaque = new OpaqueClient({ network: "testnet", signer: keypairSigner(process.env.SECRET!) });
+const multisig = opaque.contracts.multisigAdmin!;
+
+// One signer proposes publishing a new state root on privacy-pool.
+// `proposeCall` submits the tx and returns its hash, not the decoded
+// proposal id — read the id off the contract's "Proposed" event (or
+// `opaque.soroban.getTransaction(txHash)`'s return value) before approving.
+const proposeTxHash = await multisig.proposeCall({
+  target: PRIVACY_POOL_CONTRACT_ID,
+  fnName: "update_state_root",
+  args: [bytesToScVal(newRoot), bytesToScVal(datasetHash)],
+  signer: keypairSigner(process.env.SIGNER_1_SECRET!),
+});
+const proposalId = await proposalIdFromProposedEvent(proposeTxHash);
+
+// Each remaining signer approves; execution happens automatically once
+// approvals reach the configured threshold.
+for (const secret of [process.env.SIGNER_2_SECRET!, process.env.SIGNER_3_SECRET!]) {
+  await multisig.approve({ proposalId, signer: keypairSigner(secret) });
+}
+
+const proposal = await multisig.getProposal(await opaque.signer!.publicKey(), proposalId);
+console.log(proposal.executed ? "Executed" : `${proposal.approvals.length} approvals so far`);
+```
+
 ## Scope
 
 Covers the four registries with a genuine single-key protocol admin:

@@ -167,3 +167,157 @@ export async function importEncryptedBackup(
   const payload = JSON.parse(backupJson) as EncryptedGhostPayload;
   return decryptGhostEntries(payload, password);
 }
+
+// ─── Versioned vault backup (notes + stealth keys + ghost entries) ─────────
+//
+// Ports `frontend/src/services/recoveryManager.ts`'s format into the SDK
+// (issue #834). The envelope's shape, field names, PBKDF2 iteration count,
+// and AES-GCM parameters are intentionally identical to the frontend's so a
+// backup produced by either interoperates with the other. `notes` is an SDK
+// addition beyond the frontend's current schema; the frontend's importer
+// already ignores unknown top-level fields, so this stays forward-compatible
+// in both directions (see the forward-compatibility test in
+// `sdk/tests/unit/backup.test.ts`).
+
+const VAULT_BACKUP_ITERATIONS = 100_000; // matches RecoveryManager.ITERATIONS
+const VAULT_BACKUP_KEY_LENGTH = 256; // matches RecoveryManager.KEY_LENGTH
+const VAULT_BACKUP_SCHEMA = "https://opaque.cash/schemas/recovery-backup-v2.json";
+
+/** Everything a wallet needs to fully recover: notes, stealth keys, and ghost entries. */
+export interface VaultBackupPayload {
+  stealthMasterKeys: unknown[];
+  metaAddresses: unknown[];
+  scanKeys: unknown[];
+  ghostEntries: GhostEntryLike[];
+  /** SDK-side pool notes (spending material); absent from the frontend's current schema. */
+  notes?: unknown[];
+  recoveryMetadata?: unknown;
+}
+
+/** The versioned, encrypted envelope written to / read from a `.opq` backup file. */
+export interface VaultBackupFile {
+  $schema?: string;
+  version: number;
+  formatVersion?: number;
+  timestamp: string;
+  /** SHA-256 hex digest of the encrypted payload, for tamper/corruption detection. */
+  checksum: string;
+  /** Base64 AES-GCM ciphertext of the JSON-encoded {@link VaultBackupPayload}. */
+  encrypted_payload: string;
+  /** Base64 PBKDF2 salt. */
+  salt: string;
+  /** Base64 AES-GCM nonce (IV). */
+  nonce: string;
+}
+
+async function deriveVaultKey(password: string, salt: Uint8Array): Promise<CryptoKey> {
+  const encoder = new TextEncoder();
+  const passwordKey = await crypto.subtle.importKey(
+    "raw",
+    toArrayBuffer(encoder.encode(password)),
+    "PBKDF2",
+    false,
+    ["deriveKey"],
+  );
+  return crypto.subtle.deriveKey(
+    {
+      name: "PBKDF2",
+      salt: toArrayBuffer(salt),
+      iterations: VAULT_BACKUP_ITERATIONS,
+      hash: "SHA-256",
+    },
+    passwordKey,
+    { name: "AES-GCM", length: VAULT_BACKUP_KEY_LENGTH },
+    false,
+    ["encrypt", "decrypt"],
+  );
+}
+
+async function sha256Hex(bytes: Uint8Array): Promise<string> {
+  const digest = await crypto.subtle.digest("SHA-256", toArrayBuffer(bytes));
+  return Array.from(new Uint8Array(digest))
+    .map((b) => b.toString(16).padStart(2, "0"))
+    .join("");
+}
+
+/**
+ * Encrypt a full vault backup (notes, stealth keys, ghost entries) into the
+ * versioned envelope format shared with the frontend.
+ */
+export async function exportVaultBackup(
+  payload: VaultBackupPayload,
+  password: string,
+): Promise<VaultBackupFile> {
+  const salt = crypto.getRandomValues(new Uint8Array(SALT_BYTES));
+  const nonce = crypto.getRandomValues(new Uint8Array(IV_BYTES));
+  const key = await deriveVaultKey(password, salt);
+
+  const encoded = new TextEncoder().encode(JSON.stringify(payload));
+  const ciphertext = new Uint8Array(
+    await crypto.subtle.encrypt({ name: "AES-GCM", iv: toArrayBuffer(nonce) }, key, encoded),
+  );
+  const checksum = await sha256Hex(ciphertext);
+
+  return {
+    $schema: VAULT_BACKUP_SCHEMA,
+    version: 1,
+    formatVersion: 2,
+    timestamp: new Date().toISOString(),
+    checksum,
+    encrypted_payload: bytesToBase64(ciphertext),
+    salt: bytesToBase64(salt),
+    nonce: bytesToBase64(nonce),
+  };
+}
+
+/**
+ * Decrypt a vault backup produced by {@link exportVaultBackup} or by the
+ * frontend's `RecoveryManager.exportBackup`. Missing/legacy fields default
+ * to an empty array so older or partial backups still restore.
+ *
+ * @throws if the checksum (when present) doesn't match, or if decryption
+ * fails (wrong password or corrupt payload).
+ */
+export async function importVaultBackup(
+  backup: VaultBackupFile,
+  password: string,
+): Promise<VaultBackupPayload> {
+  if (!backup || !backup.encrypted_payload || !backup.salt || !backup.nonce) {
+    throw new Error("Corrupted backup file: missing required fields.");
+  }
+
+  const salt = base64ToBytes(backup.salt);
+  const nonce = base64ToBytes(backup.nonce);
+  const ciphertext = base64ToBytes(backup.encrypted_payload);
+
+  if (backup.checksum) {
+    const computed = await sha256Hex(ciphertext);
+    if (computed.toLowerCase() !== backup.checksum.toLowerCase()) {
+      throw new Error("Integrity check failed: corrupted backup payload.");
+    }
+  }
+
+  const key = await deriveVaultKey(password, salt);
+
+  let parsed: Record<string, unknown>;
+  try {
+    const decrypted = await crypto.subtle.decrypt(
+      { name: "AES-GCM", iv: toArrayBuffer(nonce) },
+      key,
+      toArrayBuffer(ciphertext),
+    );
+    parsed = JSON.parse(new TextDecoder().decode(decrypted)) as Record<string, unknown>;
+  } catch (err) {
+    if (err instanceof Error && err.message.includes("Integrity check failed")) throw err;
+    throw new Error("Invalid password or corrupted backup file.");
+  }
+
+  return {
+    stealthMasterKeys: Array.isArray(parsed.stealthMasterKeys) ? parsed.stealthMasterKeys : [],
+    metaAddresses: Array.isArray(parsed.metaAddresses) ? parsed.metaAddresses : [],
+    scanKeys: Array.isArray(parsed.scanKeys) ? parsed.scanKeys : [],
+    ghostEntries: Array.isArray(parsed.ghostEntries) ? (parsed.ghostEntries as GhostEntryLike[]) : [],
+    notes: Array.isArray(parsed.notes) ? parsed.notes : [],
+    recoveryMetadata: parsed.recoveryMetadata ?? {},
+  };
+}

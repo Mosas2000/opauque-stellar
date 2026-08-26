@@ -18,6 +18,11 @@ export interface ContractAddresses {
   poolVerifier: string;
   privacyPool: string;
   relayerRegistry: string;
+  /**
+   * Optional: not yet deployed on any network (see `deployments/v1/*.json`'s
+   * `"multisig": null`). Set once deployed to enable {@link OpaqueClient.contracts.multisigAdmin}.
+   */
+  multisigAdmin?: string;
 }
 
 export interface PoolWiring {

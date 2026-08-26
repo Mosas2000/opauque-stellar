@@ -1,6 +1,7 @@
 /**
  * Privacy pool. Deposit (derive a note's commitment and persist the note),
- * withdraw with a precomputed proof, and read pool state (deposit count, roots).
+ * sweep a stealth account straight into a deposit, withdraw with a
+ * precomputed proof, and read pool state (deposit count, roots).
  * Withdrawal proof *generation* needs the proving layer (snarkjs + circuit
  * artifacts) and is surfaced as a not-wired capability in this build: bring a
  * precomputed proof bundle to withdraw().
@@ -8,6 +9,7 @@
 import {
   bigIntToBytes32,
   deriveDeposit,
+  deriveStealthStellarKeypairFromStealthPrivKey,
   newNoteSecrets,
   parseXlmToStroops,
   toHex32,
@@ -16,6 +18,8 @@ import {
 import { NotWiredError } from "../errors/index";
 import { provePoolWithdraw, type PoolWithdrawProof } from "../prove/pool";
 import type { SimulationReport } from "../rpc/client";
+import type { OpaqueSigner } from "../signer/index";
+import { keypairSigner } from "../signer/index";
 import { validateDepositAmount } from "./pool-validation";
 import type { OpaqueClientContext } from "./context";
 
@@ -41,13 +45,68 @@ export class PoolService {
     skipValidation?: boolean;
   }): Promise<{ note: PoolNote; txHash: string }> {
     const signer = this.ctx.requireSigner();
-    const source = await signer.publicKey();
-    const scope = this.ctx.config.pool.scope;
     const value = parseXlmToStroops(opts.amountXlm);
+    return this.depositWithSigner({
+      signer,
+      value,
+      amountXlmForValidation: opts.amountXlm,
+      secrets: opts.secrets,
+      createdAt: opts.createdAt,
+      skipValidation: opts.skipValidation,
+    });
+  }
+
+  /**
+   * Fund a pool deposit straight from a discovered stealth account, without
+   * the connected wallet ever signing — the stealth account (derived from
+   * `stealthPrivKey`) is the depositor, tx source, and fee payer. This is the
+   * README's flagship "sweep into the pool" flow: the resulting note is
+   * indistinguishable from any other pool deposit, and shares this class's
+   * exact deposit/note-persistence path via {@link depositWithSigner}.
+   *
+   * `amountStroops` should be the stealth account's spendable balance minus a
+   * fee buffer (compute it however the caller sources balances — e.g. via
+   * Horizon) — this method does not itself query or reserve for fees.
+   */
+  async sweep(opts: {
+    stealthPrivKey: Uint8Array;
+    amountStroops: bigint;
+    secrets?: { nullifier: string; secret: string };
+    createdAt?: number;
+    /** Skip the pre-flight amount validation (default false). */
+    skipValidation?: boolean;
+  }): Promise<{ note: PoolNote; txHash: string }> {
+    const keypair = deriveStealthStellarKeypairFromStealthPrivKey(opts.stealthPrivKey);
+    return this.depositWithSigner({
+      signer: keypairSigner(keypair),
+      value: opts.amountStroops,
+      // No user-typed decimal string exists for a sweep; stringifying the
+      // integer stroop amount still exercises the non-positive /
+      // exceeds-field-modulus checks (an integer has 0 fractional digits, so
+      // the precision check never fires against it).
+      amountXlmForValidation: opts.amountStroops.toString(),
+      secrets: opts.secrets,
+      createdAt: opts.createdAt,
+      skipValidation: opts.skipValidation,
+    });
+  }
+
+  /** Shared deposit path: derive the commitment, submit, and persist the note. */
+  private async depositWithSigner(opts: {
+    signer: OpaqueSigner;
+    value: bigint;
+    amountXlmForValidation: string;
+    secrets?: { nullifier: string; secret: string };
+    createdAt?: number;
+    skipValidation?: boolean;
+  }): Promise<{ note: PoolNote; txHash: string }> {
+    const source = await opts.signer.publicKey();
+    const scope = this.ctx.config.pool.scope;
+    const value = opts.value;
 
     if (!opts.skipValidation) {
       const decimals = await this.ctx.contracts.privacyPool.getNativeAssetDecimals(source);
-      validateDepositAmount({ amountXlm: opts.amountXlm, valueStroops: value, decimals });
+      validateDepositAmount({ amountXlm: opts.amountXlmForValidation, valueStroops: value, decimals });
     }
 
     const expectedIndex = await this.ctx.contracts.privacyPool.getDepositCount(source);
@@ -64,7 +123,7 @@ export class PoolService {
       value,
       commitment: bigIntToBytes32(commitment),
       expectedIndex,
-      signer,
+      signer: opts.signer,
     });
 
     const note: PoolNote = {

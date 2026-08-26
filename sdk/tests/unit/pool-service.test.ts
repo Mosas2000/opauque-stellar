@@ -139,3 +139,53 @@ describe("PoolService.deposit validation", () => {
     expect(inv.invokeCalls.length).toBe(1);
   });
 });
+
+describe("PoolService.sweep", () => {
+  const stealthPrivKey = new Uint8Array(32).fill(7);
+
+  it("deposits from the stealth-derived account, not the connected wallet's signer", async () => {
+    const ctx = buildContext(inv);
+    const pool = new PoolService(ctx);
+    const connectedSource = await ctx.signer!.publicKey();
+
+    const { note, txHash } = await pool.sweep({ stealthPrivKey, amountStroops: 10_000_000n });
+
+    expect(txHash).toBe("TXHASH");
+    expect(inv.invokeCalls.length).toBe(1);
+    expect(inv.invokeCalls[0].method).toBe("deposit");
+    // The tx source is the stealth-derived account, never the connected wallet's.
+    expect(inv.invokeCalls[0].source).not.toBe(connectedSource);
+    expect(note.value).toBe("10000000");
+  });
+
+  it("persists the resulting note through the same NoteStore as deposit()", async () => {
+    const ctx = buildContext(inv);
+    const pool = new PoolService(ctx);
+    const { note } = await pool.sweep({ stealthPrivKey, amountStroops: 5_000_000n });
+    const stored = await ctx.notes.list();
+    expect(stored).toEqual([note]);
+  });
+
+  it("runs the same amount validation as deposit()", async () => {
+    const ctx = buildContext(inv);
+    const pool = new PoolService(ctx);
+    await expect(pool.sweep({ stealthPrivKey, amountStroops: 0n })).rejects.toThrow(PoolValidationError);
+    expect(inv.invokeCalls.length).toBe(0);
+  });
+
+  it("skipValidation bypasses the precheck for sweep too", async () => {
+    const ctx = buildContext(inv);
+    const pool = new PoolService(ctx);
+    const { txHash } = await pool.sweep({ stealthPrivKey, amountStroops: 0n, skipValidation: true });
+    expect(txHash).toBe("TXHASH");
+  });
+
+  it("two different stealth private keys sweep from two different accounts", async () => {
+    const ctx = buildContext(inv);
+    const pool = new PoolService(ctx);
+    const a = await pool.sweep({ stealthPrivKey: new Uint8Array(32).fill(1), amountStroops: 1_000_000n });
+    const b = await pool.sweep({ stealthPrivKey: new Uint8Array(32).fill(2), amountStroops: 1_000_000n });
+    expect(inv.invokeCalls[0].source).not.toBe(inv.invokeCalls[1].source);
+    expect(a.note.commitment).not.toBe(b.note.commitment);
+  });
+});

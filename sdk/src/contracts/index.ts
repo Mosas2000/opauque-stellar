@@ -9,3 +9,4 @@ export * from "./attestations";
 export * from "./verifier";
 export * from "./pool";
 export * from "./relayer";
+export * from "./multisig-admin";

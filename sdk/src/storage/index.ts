@@ -63,3 +63,13 @@ export class MemoryScanStore implements ScanStore {
     this.cursor = ledger;
   }
 }
+
+export {
+  EncryptedNoteStore,
+  EncryptedVaultStore,
+  EncryptedScanStore,
+  localStorageBackend,
+  memoryBackend,
+  fileBackend,
+  type EncryptedStorageBackend,
+} from "./encrypted";

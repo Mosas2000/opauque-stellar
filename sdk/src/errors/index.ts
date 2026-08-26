@@ -113,6 +113,20 @@ export class ArtifactError extends OpaqueError {
   }
 }
 
+/** An encrypted storage adapter failed to read or decrypt its persisted data. */
+export class StorageError extends OpaqueError {
+  /** "wrong-passphrase": AES-GCM auth tag rejected the derived key. "corrupt-payload": the stored envelope is malformed or has an unsupported version. */
+  readonly reason: "wrong-passphrase" | "corrupt-payload";
+  constructor(
+    message: string,
+    reason: "wrong-passphrase" | "corrupt-payload",
+    options?: { cause?: unknown },
+  ) {
+    super(message, "STORAGE", options);
+    this.reason = reason;
+  }
+}
+
 /** A serialized note failed to decode: unknown schema version or a missing/malformed field. */
 export class NoteSchemaError extends OpaqueError {
   constructor(message: string, options?: { cause?: unknown }) {
