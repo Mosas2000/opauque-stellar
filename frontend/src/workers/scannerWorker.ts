@@ -148,7 +148,7 @@ let wasmPromise: Promise<ScannerWasmModule> | null = null;
 function loadWasm(): Promise<ScannerWasmModule> {
   if (!wasmPromise) {
     wasmPromise = (async () => {
-      const mod = (await (Function('return import("/pkg/cryptography.js")')() as Promise<
+      const mod = (await (Function('return import("/pkg/opauque_scanner.js")')() as Promise<
         Record<string, unknown> & { default: () => Promise<void> }
       >));
       await mod.default();

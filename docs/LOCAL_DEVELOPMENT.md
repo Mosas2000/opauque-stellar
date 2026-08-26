@@ -175,7 +175,7 @@ circuits locally (section 7.3).
 
 | Artifact | Built from | Where it ends up | How it is verified |
 |---|---|---|---|
-| `cryptography_bg.wasm` | `scanner/` via `wasm-pack` | `frontend/public/pkg/` | SHA-256 in `manifest.json` |
+| `opauque_scanner_bg.wasm` | `scanner/` via `wasm-pack` | `frontend/public/pkg/` | SHA-256 in `manifest.json` |
 | `stealth_attestation.wasm` + `sa_final.zkey` | `circuits/stealth_attestation.circom` | `frontend/public/circuits/` | SHA-256 in `manifest.json` |
 | `stealth_reputation.wasm` + `stealth_reputation_final.zkey` | `circuits/v2/stealth_reputation.circom` | `frontend/public/circuits/v2/` | SHA-256 in `manifest.json` |
 | `privacy_pool_withdraw.wasm` + zkey | `circuits/v3/privacy_pool_withdraw.circom` | `frontend/public/circuits/v3/` | SHA-256 in `manifest.json` |

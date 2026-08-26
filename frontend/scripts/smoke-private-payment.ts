@@ -8,7 +8,7 @@
  * deployments/v1/testnet.json) using raw Stellar Keypairs instead of Freighter,
  * and reuses the real, framework-free crypto:
  *   - DKSAP derivation from src/lib/stealth.ts
- *   - the Rust WASM scanner from public/pkg/cryptography.js
+ *   - the Rust WASM scanner from public/pkg/opauque_scanner.js
  *
  * This proves the private payment works end to end without a browser, and serves
  * as groundwork for the Phase 6 SDK signer abstraction.
@@ -49,7 +49,7 @@ import initWasm, {
   check_announcement_view_tag_wasm,
   check_announcement_wasm,
   reconstruct_signing_key_wasm,
-} from "../public/pkg/cryptography.js";
+} from "../public/pkg/opauque_scanner.js";
 
 // -----------------------------------------------------------------------------
 // Config
@@ -225,7 +225,7 @@ async function main() {
 
   // --- 3. recipient scans announcements (WASM view-tag filter + key reconstruct) ---
   log("Recipient scans announcer events with the WASM scanner…");
-  await initWasm({ module_or_path: readFileSync(join(REPO_ROOT, "frontend", "public", "pkg", "cryptography_bg.wasm")) });
+  await initWasm({ module_or_path: readFileSync(join(REPO_ROOT, "frontend", "public", "pkg", "opauque_scanner_bg.wasm")) });
 
   let recovered: { stellarAddress: string; stealthPriv: Uint8Array } | null = null;
   let cursor: string | undefined;

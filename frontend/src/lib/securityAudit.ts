@@ -12,7 +12,7 @@ export const SECURITY_AUDIT_DOCS = {
 export const MAINNET_AUDIT_COMPONENTS = [
   "Soroban contracts (6 packages)",
   "ZK circuits (v1/v2)",
-  "Scanner WASM cryptography",
+  "Scanner WASM (opauque-scanner)",
   "Frontend key handling",
   "Deployment operations",
 ] as const;

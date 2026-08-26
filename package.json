@@ -24,7 +24,8 @@
     "soak": "tsx scripts/soak-test.ts",
     "soak:short": "SOAK_DURATION=5m tsx scripts/soak-test.ts",
     "csp:report": "tsx scripts/csp-report-server.ts",
-    "audit:supply-chain": "npm audit --omit=dev --audit-level=high && npm audit --omit=dev --audit-level=high --prefix frontend"
+    "audit:supply-chain": "npm audit --omit=dev --audit-level=high && npm audit --omit=dev --audit-level=high --prefix frontend",
+    "check:env": "tsx scripts/check-env-example.ts"
   },
   "devDependencies": {
     "@types/node": "^22.15.0",

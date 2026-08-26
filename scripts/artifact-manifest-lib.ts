@@ -165,8 +165,8 @@ export function syncDeploymentManifestCircuitHashes(manifest) {
     dep.artifacts.circuits ??= {};
 
     dep.artifacts.scanner.wasmHash =
-      manifest.scanner?.files?.cryptography_bg?.wasm?.sha256 ??
-      manifest.scanner?.files?.["cryptography_bg.wasm"]?.sha256 ??
+      manifest.scanner?.files?.opauque_scanner_bg?.wasm?.sha256 ??
+      manifest.scanner?.files?.["opauque_scanner_bg.wasm"]?.sha256 ??
       null;
 
     for (const version of Object.keys(manifest.circuits ?? {})) {

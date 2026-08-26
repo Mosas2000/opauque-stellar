@@ -52,10 +52,10 @@ function main() {
   // Step 2: Load manifest
   const manifest = loadManifest();
   const scannerFiles = manifest.scanner?.files ?? {};
-  const wasmEntry = scannerFiles["cryptography_bg.wasm"];
+  const wasmEntry = scannerFiles["opauque_scanner_bg.wasm"];
 
   if (!wasmEntry) {
-    console.error("ERROR: cryptography_bg.wasm not found in artifact manifest");
+    console.error("ERROR: opauque_scanner_bg.wasm not found in artifact manifest");
     process.exit(1);
   }
 

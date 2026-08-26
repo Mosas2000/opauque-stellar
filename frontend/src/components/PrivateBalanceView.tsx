@@ -1195,7 +1195,7 @@ export function PrivateBalanceView() {
 
       {!wasmReady ? (
         <div className="rounded-2xl border border-ink-700 bg-ink-900/25 p-6">
-          <p className="text-mist text-sm">Initializing cryptography…</p>
+          <p className="text-mist text-sm">Initializing scanner…</p>
         </div>
       ) : loading ? (
         <div className="rounded-2xl border border-ink-700 bg-ink-900/25 p-6">

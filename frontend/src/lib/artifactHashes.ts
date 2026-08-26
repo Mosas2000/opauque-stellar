@@ -20,8 +20,8 @@ export type CircuitArtifactBundle = {
 export const ARTIFACT_MANIFEST = manifest;
 
 export const SCANNER_ARTIFACT_HASHES = {
-  cryptography_bg_wasm: manifest.scanner.files["cryptography_bg.wasm"].sha256,
-  cryptography_js: manifest.scanner.files["cryptography.js"].sha256,
+  opauque_scanner_bg_wasm: manifest.scanner.files["opauque_scanner_bg.wasm"].sha256,
+  opauque_scanner_js: manifest.scanner.files["opauque_scanner.js"].sha256,
 } as const;
 
 export function getCircuitArtifactHashes(version: "v1" | "v2"): CircuitArtifactBundle {
