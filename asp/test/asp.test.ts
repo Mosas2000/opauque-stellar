@@ -79,10 +79,11 @@ describe("policy", () => {
   it("approveAll approves everything", async () => {
     expect(await approveAll.screen(dep(0))).toBe("approve");
   });
-  it("allowlist approves listed, defers others", async () => {
+  it("allowlist approves listed and rejects unlisted deposits", async () => {
     const pol = allowlist([1, 3]);
     expect(await pol.screen(dep(1))).toBe("approve");
-    expect(await pol.screen(dep(2))).toBe("defer");
+    expect(await pol.screen(dep(2))).toBe("reject");
+    expect(pol.reason?.(dep(2))).toMatch(/appeal/i);
   });
 });
 
@@ -176,7 +177,27 @@ describe("engine reconcile", () => {
     expect(adapter.posts.length).toBe(2);
   });
 
-  it("self-heals when the on-chain root drifts (crash-after-compute)", async () => {
+
+  it("excludes rejected deposits from the published set and records them for appeals", async () => {
+    const adapter = new FakeAdapter();
+    const store = new MemoryStore();
+    adapter.deposits = [deposit(0), deposit(1), deposit(2)];
+
+    const res = await runPoolTick({
+      poolId: "pool",
+      scope: 1,
+      adapter,
+      store,
+      policy: allowlist([1]),
+    });
+
+    expect(res.approvedCount).toBe(1);
+    expect(res.rejectedCount).toBe(2);
+    expect(res.deferredCount).toBe(0);
+    expect(store.load("pool")?.approvedIndices).toEqual([1]);
+    expect(store.load("pool")?.rejectedIndices).toEqual([0, 2]);
+    expect(adapter.posts).toHaveLength(1);
+  });  it("self-heals when the on-chain root drifts (crash-after-compute)", async () => {
     const adapter = new FakeAdapter();
     const store = new MemoryStore();
     adapter.deposits = [deposit(0)];
@@ -236,7 +257,7 @@ describe("policy engine", () => {
       policies: [allowlist([1]), approveAll],
       strategy: "first-decides",
     });
-    expect(await engine.screen(dep(0))).toBe("defer"); // allowlist defers
+    expect(await engine.screen(dep(0))).toBe("reject"); // allowlist excludes
     expect(await engine.screen(dep(1))).toBe("approve"); // allowlist approves
   });
 
@@ -254,7 +275,7 @@ describe("policy engine", () => {
       strategy: "all-must-approve",
     });
     expect(await engine.screen(dep(1))).toBe("approve");
-    // allowlist defers dep(0), so not all approve → reject
+    // allowlist rejects dep(0), so not all approve -> reject
     expect(await engine.screen(dep(0))).toBe("reject");
   });
 
@@ -392,7 +413,9 @@ describe("engine with monitor and reorg guard", () => {
       policy: approveAll,
       reorgGuard: guard,
     });
-    // Simulate reorg: guard expects ledger 11, gets ledger 5
+    // Simulate reorg: guard expects ledger 11, gets a new finalized event at ledger 5
+    adapter.deposits = [deposit(1)];
+    adapter.deposits[0].ledger = 5;
     const r = await runPoolTick({
       poolId: "pool",
       scope: 1,

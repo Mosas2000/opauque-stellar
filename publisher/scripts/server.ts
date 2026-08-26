@@ -17,7 +17,6 @@
  * See src/auth.ts for the token issuance flow and src/trusted-proxy.ts for
  * PUBLISHER_TRUSTED_PROXIES, which gates how X-Forwarded-For is honored.
  */
-import { readFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { Keypair } from "@stellar/stellar-sdk";
@@ -29,21 +28,23 @@ import { createPublisherHttpServer, runPublisherLoop } from "../src/http.ts";
 import { loadAuthConfigFromEnv } from "../src/auth.ts";
 import { loadTrustedProxiesFromEnv } from "../src/trusted-proxy.ts";
 import { numberEnv } from "../src/env.ts";
+import { createLogger } from "../src/logger.ts";
+import { getDeploymentManifest, requireDeployedContract, resolveDeploymentNetwork } from "../../deployments/index.ts";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const REPO_ROOT = resolve(__dirname, "..", "..");
-const NETWORK_PASSPHRASE = "Test SDF Network ; September 2015";
 
 const MAX_INBOX_SIZE = numberEnv("PUBLISHER_MAX_INBOX", 10_000, { min: 1, integer: true });
 const MAX_BODY_BYTES = numberEnv("PUBLISHER_MAX_BODY_BYTES", 32 * 1024, { min: 1, integer: true });
 
 function loadConfig() {
-  const manifest = JSON.parse(readFileSync(join(REPO_ROOT, "deployments", "v1", "testnet.json"), "utf8"));
-  const verifierId = process.env.REPUTATION_VERIFIER_ID ?? manifest.contracts?.reputationVerifier?.id;
-  if (!verifierId) throw new Error("reputationVerifier not deployed (deployments/v1/testnet.json)");
+  const network = resolveDeploymentNetwork(process.env.OPAQUE_NETWORK ?? process.env.STELLAR_NETWORK ?? "testnet");
+  const manifest = getDeploymentManifest(network) as any;
+  const verifierId = process.env.REPUTATION_VERIFIER_ID?.trim() || requireDeployedContract(manifest, "reputationVerifier", "publisher");
   const secret = process.env.PUBLISHER_SECRET?.trim() ?? process.env.DEPLOYER_SECRET?.trim();
   if (!secret) throw new Error("set PUBLISHER_SECRET (current testnet requires the verifier admin key)");
   return {
+    network,
+    networkPassphrase: process.env.NETWORK_PASSPHRASE?.trim() || manifest.networkPassphrase,
     verifierId,
     publisher: Keypair.fromSecret(secret),
     rpcUrl: process.env.STELLAR_RPC_URL ?? manifest.rpcUrl ?? "https://soroban-testnet.stellar.org",
@@ -63,7 +64,7 @@ async function main() {
   const metrics = createMetrics();
   const adapter = new StellarReputationAdapter({
     rpcUrl: cfg.rpcUrl,
-    networkPassphrase: NETWORK_PASSPHRASE,
+    networkPassphrase: cfg.networkPassphrase,
     verifierId: cfg.verifierId,
     publisher: cfg.publisher,
   });
@@ -80,13 +81,13 @@ async function main() {
     intervalMs: cfg.intervalMs,
     onTick: (res) => {
       if (!res.published) return;
-      console.log(`[${new Date().toISOString()}] PUBLISHED root=${res.localRoot?.slice(0, 14)}... tx=${res.txHash}`);
+      createLogger("publisher", { verifierId: cfg.verifierId, network: cfg.network }).info("root published", { root: res.localRoot, txHash: res.txHash });
     },
     onError: (err) => {
-      console.error(`background publish tick failed (will retry): ${err?.message ?? err}`);
+      createLogger("publisher", { verifierId: cfg.verifierId, network: cfg.network }).error("background publish tick failed", { error: err });
     },
   }).catch((err) => {
-    console.error(`publish loop crashed: ${err?.message ?? err}`);
+    createLogger("publisher", { verifierId: cfg.verifierId, network: cfg.network }).error("publish loop crashed", { error: err });
     process.exit(1);
   });
 
@@ -103,13 +104,12 @@ async function main() {
   });
 
   server.listen(cfg.port, cfg.host, () => {
-    console.log(`Reputation publisher API listening on http://${cfg.host}:${cfg.port}`);
-    console.log(`verifier=${cfg.verifierId} maxInbox=${MAX_INBOX_SIZE} publishIntervalMs=${cfg.intervalMs}`);
+    createLogger("publisher", { verifierId: cfg.verifierId, network: cfg.network }).info("api listening", { endpoint: `http://${cfg.host}:${cfg.port}`, maxInbox: MAX_INBOX_SIZE, publishIntervalMs: cfg.intervalMs });
   });
 }
 
 main().catch((err) => {
-  console.error(err?.message ?? err);
+  createLogger("publisher").error("server crashed", { error: err });
   process.exit(1);
 });
 

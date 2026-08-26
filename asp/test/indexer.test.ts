@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { createPublicationMonitor, createReorgGuard, tick } from "../scripts/indexer.ts";
+import { Keypair } from "@stellar/stellar-sdk";
+import { backoffDelayMs } from "../src/backoff.ts";
+import { createPublicationMonitor, createReorgGuard, loadConfig, tick } from "../scripts/indexer.ts";
 import { MemoryStore } from "../src/store.ts";
 import type { ChainAdapter, Deposit } from "../src/types.ts";
 
@@ -94,5 +96,45 @@ describe("indexer entrypoint wiring", () => {
     expect(r2.published).toBe(false);
     expect(divergences.length).toBeGreaterThan(0);
     expect(adapter.posts.length).toBe(1); // no republish while halted
+  });
+});
+describe("indexer configuration", () => {
+  it("selects allowlist policy from configuration", () => {
+    const oldEnv = { ...process.env };
+    process.env.ASP_SECRET = Keypair.random().secret();
+    process.env.ASP_POLICY = "allowlist";
+    process.env.ASP_ALLOWLIST_INDICES = "1,3";
+    try {
+      const cfg = loadConfig();
+      expect(cfg.policy.name).toBe("allowlist");
+      expect(cfg.policy.screen(deposit(1, 10))).toBe("approve");
+      expect(cfg.policy.screen(deposit(2, 10))).toBe("reject");
+    } finally {
+      process.env = oldEnv;
+    }
+  });
+
+  it("selects approveAll policy by default", () => {
+    const oldEnv = { ...process.env };
+    process.env.ASP_SECRET = Keypair.random().secret();
+    delete process.env.ASP_POLICY;
+    try {
+      const cfg = loadConfig();
+      expect(cfg.policy.name).toBe("approve-all");
+    } finally {
+      process.env = oldEnv;
+    }
+  });
+});
+
+describe("indexer backoff", () => {
+  it("backs sustained failures off to a bounded maximum and recovers to normal cadence", () => {
+    const opts = { baseIntervalMs: 1000, maxIntervalMs: 5000, jitterRatio: 0, random: () => 0 };
+    expect(backoffDelayMs(0, opts)).toBe(1000);
+    expect(backoffDelayMs(1, opts)).toBe(1000);
+    expect(backoffDelayMs(2, opts)).toBe(2000);
+    expect(backoffDelayMs(3, opts)).toBe(4000);
+    expect(backoffDelayMs(4, opts)).toBe(5000);
+    expect(backoffDelayMs(0, opts)).toBe(1000);
   });
 });

@@ -77,7 +77,7 @@ export class RelayerHub {
     private readonly transport: GossipTransport,
     /** Called with only the job identifier — never the payload, recipient, or proof data. */
     private readonly onFailover: (jobId: string) => void = (jobId) =>
-      console.warn("[relayer-hub] reassigning stalled job", jobId),
+      log.warn("reassigning stalled job", { jobId }),
     private readonly store?: HubStore,
   ) {
     this.startedAt = Date.now();
@@ -288,7 +288,7 @@ export class RelayerHub {
       });
     } catch (err) {
       this.stats.lastError = err instanceof Error ? err.message : String(err);
-      console.error("[relayer-hub] failed to persist state:", err);
+      log.error("hub persist failed", { error: err });
     }
   }
 
@@ -309,14 +309,10 @@ export class RelayerHub {
         this.stats.outcomesSeen = saved.stats.outcomesSeen;
         this.stats.heartbeatsSeen = saved.stats.heartbeatsSeen;
       }
-      console.log("[relayer-hub] restored state from store:", {
-        bids: this.bids.size,
-        operators: this.knownOperators.size,
-        assignments: this.assignments.size,
-      });
+      log.info("restored state from store", { bids: this.bids.size, operators: this.knownOperators.size, assignments: this.assignments.size });
     } catch (err) {
       this.stats.lastError = err instanceof Error ? err.message : String(err);
-      console.error("[relayer-hub] failed to hydrate from store:", err);
+      log.error("hub hydrate failed", { error: err });
     }
   }
 }

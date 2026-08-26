@@ -283,3 +283,9 @@ Back up PUBLISHER_DATA_DIR according to docs/state-backups.md retention policy.
 - docs/running-asp.md: ASP indexer runbook (separate service)
 - docs/running-relayer.md: Relayer operator guide (separate service)
 - .env.example: Root environment variable reference
+
+## Network Selection and Logs
+
+Set `OPAQUE_NETWORK=testnet` or `OPAQUE_NETWORK=mainnet` before starting the publisher. The service loads `deployments/v1/<network>.json`, uses that manifest's `networkPassphrase`, and fails fast if the selected manifest has not deployed `reputationVerifier` yet. Mainnet remains blocked until its manifest is populated.
+
+Publisher service logs are JSON objects with `ts`, `level`, `service`, `correlationId` when present, and event fields. The shared logger redacts secrets, passphrases, tokens, signatures, and 32-byte hex values.

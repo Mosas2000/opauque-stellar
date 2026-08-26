@@ -11,7 +11,8 @@ import { StellarRelayerChain } from "../src/chains/stellar.ts";
 import { generateX25519Keypair } from "../src/shared/box.ts";
 import { bytesToHex, hexToBytes } from "../src/shared/bytes.ts";
 import { numberEnv } from "../src/env.ts";
-import testnetManifest from "../../deployments/v1/testnet.json" with { type: "json" };
+import { createLogger } from "../src/logger.ts";
+import { getDeploymentManifest, requireDeployedContract, resolveDeploymentNetwork } from "../../deployments/index.ts";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ROOT = resolve(__dirname, "../..");
@@ -42,16 +43,14 @@ function required(name: string): string {
 
 loadDotEnv();
 
-const manifest = testnetManifest as {
-  rpcUrl: string;
-  networkPassphrase: string;
-  contracts: { relayerRegistry?: { id?: string | null } };
-};
-
+const network = resolveDeploymentNetwork(process.env.OPAQUE_NETWORK ?? process.env.STELLAR_NETWORK ?? "testnet");
+const manifest = getDeploymentManifest(network) as any;
+const log = createLogger("relayer", { network });
 const operator = Keypair.fromSecret(required("RELAYER_OPERATOR_SECRET"));
 const x25519 = generateX25519Keypair(hexToBytes(required("RELAYER_X25519_SECRET")));
-const registryId = process.env.RELAYER_REGISTRY_ID?.trim() || manifest.contracts.relayerRegistry?.id;
-if (!registryId) throw new Error("Set RELAYER_REGISTRY_ID or deploy relayerRegistry in the testnet manifest.");
+const registryId =
+  process.env.RELAYER_REGISTRY_ID?.trim() ||
+  requireDeployedContract(manifest, "relayerRegistry", "relayer");
 
 const rpcUrl = process.env.STELLAR_RPC_URL?.trim() || manifest.rpcUrl;
 const endpoint = process.env.RELAYER_ENDPOINT?.trim() || "http://127.0.0.1:8787";
@@ -79,10 +78,7 @@ const hubUrl = process.env.RELAYER_HUB_URL?.trim();
 if (hubUrl) {
   const transport = new HttpGossipTransport(hubUrl);
   await attachRelayerEngineToGossip(engine, transport);
-  console.log(`Opaque relayer connected to hub ${hubUrl}`);
-  console.log(`operator=${operator.publicKey()}`);
-  console.log(`x25519=${bytesToHex(x25519.publicKey)}`);
-  console.log(`registry=${registryId}`);
+  log.info("connected to hub", { hubUrl, operator: operator.publicKey(), x25519: bytesToHex(x25519.publicKey), registryId });
 } else {
   const transport = new MemoryGossipTransport();
   const hub = new RelayerHub(transport);
@@ -91,9 +87,6 @@ if (hubUrl) {
 
   const server: ReturnType<typeof createServer> = createRelayerHttpServer(hub);
   server.listen(port, () => {
-    console.log(`Opaque relayer gateway listening on ${endpoint}`);
-    console.log(`operator=${operator.publicKey()}`);
-    console.log(`x25519=${bytesToHex(x25519.publicKey)}`);
-    console.log(`registry=${registryId}`);
+    log.info("gateway listening", { endpoint, operator: operator.publicKey(), x25519: bytesToHex(x25519.publicKey), registryId });
   });
 }

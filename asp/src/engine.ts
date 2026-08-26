@@ -39,6 +39,9 @@ export interface TickResult {
   poolId: string;
   approvedCount: number;
   newlyApproved: number;
+  rejectedCount: number;
+  newlyRejected: number;
+  deferredCount: number;
   localRoot: string;
   onChainRoot: string | null;
   published: boolean;
@@ -53,26 +56,42 @@ export interface TickResult {
 }
 
 function initState(poolId: string, scope: number): PoolState {
-  return { poolId, scope, approvedIndices: [], lastIndex: -1, lastLedger: 0 };
+  return { poolId, scope, approvedIndices: [], rejectedIndices: [], deferredIndices: [], lastIndex: -1, lastLedger: 0 };
 }
 
 export async function runPoolTick(cfg: TickConfig): Promise<TickResult> {
   const now = cfg.now ?? (() => new Date().toISOString());
   const state = cfg.store.load(cfg.poolId) ?? initState(cfg.poolId, cfg.scope);
+  state.rejectedIndices ??= [];
+  state.deferredIndices ??= [];
 
-  // 1. Read finalized deposits past our cursor and screen them.
-  const deposits = await cfg.adapter.readDeposits(state.lastIndex, state.lastLedger);
+  // 1. Read finalized deposits and screen any index without a terminal decision.
+  const readAfterIndex = state.deferredIndices.length > 0 ? -1 : state.lastIndex;
+  const deposits = await cfg.adapter.readDeposits(readAfterIndex, state.lastLedger);
   let newlyApproved = 0;
+  let newlyRejected = 0;
+  const approved = new Set(state.approvedIndices);
+  const rejected = new Set(state.rejectedIndices);
+  const nextDeferred = new Set<number>();
   for (const dep of deposits) {
-    if (dep.index <= state.lastIndex) continue;
+    if (approved.has(dep.index) || rejected.has(dep.index)) continue;
     const verdict = await cfg.policy.screen(dep);
     if (verdict === "approve") {
       state.approvedIndices.push(dep.index);
+      approved.add(dep.index);
       newlyApproved++;
+    } else if (verdict === "reject") {
+      state.rejectedIndices.push(dep.index);
+      rejected.add(dep.index);
+      newlyRejected++;
+    } else {
+      nextDeferred.add(dep.index);
     }
-    state.lastIndex = Math.max(state.lastIndex, dep.index);
+    if (verdict !== "defer") state.lastIndex = Math.max(state.lastIndex, dep.index);
     state.lastLedger = Math.max(state.lastLedger, dep.ledger);
   }
+  state.rejectedIndices.sort((a, b) => a - b);
+  state.deferredIndices = Array.from(nextDeferred).sort((a, b) => a - b);
 
   // 2. Rebuild the set + local root from the durable approved indices (reconcile).
   const set = await AssociationSet.create(cfg.scope);
@@ -91,6 +110,9 @@ export async function runPoolTick(cfg: TickConfig): Promise<TickResult> {
         poolId: cfg.poolId,
         approvedCount: state.approvedIndices.length,
         newlyApproved,
+        rejectedCount: state.rejectedIndices.length,
+        newlyRejected,
+        deferredCount: state.deferredIndices.length,
         localRoot,
         onChainRoot: await cfg.adapter.currentAspRoot(),
         published: false,
@@ -153,6 +175,9 @@ export async function runPoolTick(cfg: TickConfig): Promise<TickResult> {
     poolId: cfg.poolId,
     approvedCount: state.approvedIndices.length,
     newlyApproved,
+    rejectedCount: state.rejectedIndices.length,
+    newlyRejected,
+    deferredCount: state.deferredIndices.length,
     localRoot,
     onChainRoot,
     published,
