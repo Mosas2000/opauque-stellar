@@ -11,6 +11,7 @@ import type { ArtifactResolver } from "../artifacts/index";
 import type {
   AttestationEngine,
   Groth16Verifier,
+  MultisigAdmin,
   PrivacyPool,
   RelayerRegistry,
   ReputationVerifier,
@@ -28,6 +29,8 @@ export interface ContractBindings {
   reputationVerifier: ReputationVerifier;
   privacyPool: PrivacyPool;
   relayerRegistry: RelayerRegistry;
+  /** Only set when `config.contracts.multisigAdmin` is configured — not yet deployed on any network. */
+  multisigAdmin?: MultisigAdmin;
 }
 
 export interface OpaqueClientContext {

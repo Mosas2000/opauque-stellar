@@ -62,6 +62,13 @@ await opaque.reputation.verifyOnChain(proofBundle);
 const { note } = await opaque.pool.deposit({ amountXlm: "5" });
 await opaque.pool.withdraw({ proof, recipient, noteCommitment: note.commitment });
 
+// Sweep a discovered stealth payment straight into the pool — the stealth
+// account signs and pays its own fee, so the connected wallet never touches it.
+const { note: sweptNote } = await opaque.pool.sweep({
+  stealthPrivKey: match.stealthPrivKey, // from payments.scan()
+  amountStroops: spendableStroops,      // balance minus a fee buffer, from Horizon
+});
+
 // Schema administration
 const { schemaId } = await opaque.schemas.register({
   name: "credit", fieldDefinitions: "u64 score, bool verified",

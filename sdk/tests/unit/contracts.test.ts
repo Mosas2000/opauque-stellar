@@ -14,6 +14,7 @@ import {
   Groth16Verifier,
   PrivacyPool,
   RelayerRegistry,
+  MultisigAdmin,
   keypairSigner,
   fromScVal,
   addressToScVal,
@@ -354,5 +355,83 @@ describe("relayer binding", () => {
     expect(inv.last!.method).toBe("cancel_job");
     await reg.slashJob({ jobId: bytes(32), signer });
     expect(inv.last!.method).toBe("slash_job");
+  });
+});
+
+describe("multisig-admin binding", () => {
+  it("proposeCall encodes [address proposer, address target, symbol fn_name, vec args]", async () => {
+    await new MultisigAdmin(inv, C).proposeCall({
+      target: DELEGATE,
+      fnName: "publish_root",
+      args: [bytesToScVal(bytes(32)), u64ToScVal(42n)],
+      signer,
+    });
+    expect(inv.last!.method).toBe("propose_call");
+    expect(inv.last!.contractId).toBe(C);
+    expect(inv.last!.source).toBe(PK);
+    const a = decoded();
+    expect(a[0]).toBe(PK);
+    expect(a[1]).toBe(DELEGATE);
+    expect(a[2]).toBe("publish_root");
+    expect(Array.isArray(a[3])).toBe(true);
+    expect((a[3] as unknown[]).length).toBe(2);
+  });
+
+  it("proposeRotation encodes [address proposer, vec new_signers, u32 new_threshold]", async () => {
+    await new MultisigAdmin(inv, C).proposeRotation({
+      newSigners: [PK, DELEGATE],
+      newThreshold: 2,
+      signer,
+    });
+    expect(inv.last!.method).toBe("propose_rotation");
+    const a = decoded();
+    expect(a[0]).toBe(PK);
+    expect(a[1]).toEqual([PK, DELEGATE]);
+    expect(a[2]).toBe(2);
+  });
+
+  it("approve encodes [address signer, bytesN proposal_id]", async () => {
+    const proposalId = bytes(32, 9);
+    await new MultisigAdmin(inv, C).approve({ proposalId, signer });
+    expect(inv.last!.method).toBe("approve");
+    const a = decoded();
+    expect(a[0]).toBe(PK);
+    expect((a[1] as Uint8Array).length).toBe(32);
+  });
+
+  it("getConfig decodes the on-chain MultisigConfig struct", async () => {
+    inv.reads.get_config = { signers: [PK, DELEGATE], threshold: 2 };
+    const config = await new MultisigAdmin(inv, C).getConfig(PK);
+    expect(inv.lastRead).toEqual({ source: PK, contractId: C, method: "get_config", args: [] });
+    expect(config).toEqual({ signers: [PK, DELEGATE], threshold: 2 });
+  });
+
+  it("getProposal decodes the on-chain Proposal struct", async () => {
+    const id = bytes(32, 3);
+    inv.reads.get_proposal = {
+      id,
+      is_rotation: false,
+      target: DELEGATE,
+      fn_name: "publish_root",
+      new_signers: [],
+      new_threshold: 0,
+      proposer: PK,
+      approvals: [PK],
+      executed: false,
+      created_at: 1234,
+    };
+    const proposal = await new MultisigAdmin(inv, C).getProposal(PK, id);
+    expect(proposal.target).toBe(DELEGATE);
+    expect(proposal.fnName).toBe("publish_root");
+    expect(proposal.approvals).toEqual([PK]);
+    expect(proposal.executed).toBe(false);
+    expect(proposal.createdAt).toBe(1234);
+  });
+
+  it("isSigner reads is_signer for the given address", async () => {
+    inv.reads.is_signer = true;
+    const result = await new MultisigAdmin(inv, C).isSigner(PK, DELEGATE);
+    expect(result).toBe(true);
+    expect(inv.lastRead!.method).toBe("is_signer");
   });
 });
