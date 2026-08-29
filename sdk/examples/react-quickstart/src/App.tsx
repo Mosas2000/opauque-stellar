@@ -1,6 +1,7 @@
 /**
- * Minimal React example wiring connect → receive → deposit → withdraw
- * through @opaquecash/stellar (#575). Runs against Stellar testnet.
+ * Minimal React example wiring connect → receive → deposit → withdraw →
+ * relayer → reputation through @opaquecash/stellar. Runs against Stellar
+ * testnet.
  *
  * See README.md for setup (Freighter extension + a funded testnet account).
  *
@@ -22,6 +23,7 @@ import {
   callbackSigner,
   type StealthIdentity,
   type ScanMatch,
+  type ReputationProof,
 } from "@opaquecash/stellar";
 
 /** Fixed message signed once to deterministically derive a stealth identity. */
@@ -78,6 +80,14 @@ export function App() {
 
   const [withdrawRecipient, setWithdrawRecipient] = useState("");
   const [proofProgress, setProofProgress] = useState<ProofProgress>({ phase: "idle" });
+
+  const [relayedRecipient, setRelayedRecipient] = useState("");
+  const [relayedProgress, setRelayedProgress] = useState<ProofProgress>({ phase: "idle" });
+
+  const [reputationAttestationId, setReputationAttestationId] = useState("");
+  const [reputationStealthPrivKey, setReputationStealthPrivKey] = useState("");
+  const [reputationExternalNullifier, setReputationExternalNullifier] = useState("42");
+  const [reputationProgress, setReputationProgress] = useState<ProofProgress>({ phase: "idle" });
 
   // ── 1. Connect ────────────────────────────────────────────────────────────
   const connect = useCallback(async () => {
@@ -190,6 +200,107 @@ export function App() {
     }
   }, [client, withdrawRecipient]);
 
+  // ── 5. Relayed Withdraw (via relayer market) ────────────────────────────
+  const relayedWithdraw = useCallback(async () => {
+    if (!client) return;
+    if (!client.artifacts) {
+      setRelayedProgress({
+        phase: "unavailable",
+        reason:
+          "No circuit artifact resolver configured. Construct OpaqueClient with " +
+          "{ artifacts } (see OPAQUE_CIRCUITS_DIR in examples/node-quickstart.mjs) " +
+          "to enable real proof generation, or wire a precomputed proof bundle.",
+      });
+      return;
+    }
+
+    const notes = await client.notes.list?.();
+    const note = notes?.find((n) => !n.spent);
+    if (!note) {
+      setRelayedProgress({ phase: "error", message: "No unspent notes available to withdraw." });
+      return;
+    }
+
+    try {
+      setRelayedProgress({ phase: "reconstructing-state" });
+      setRelayedProgress({ phase: "generating-proof" });
+
+      // Generate proof bound to the registry (relayer must be registry, fee 0)
+      const registryId = client.config.contracts.relayerRegistry;
+      const proof = await client.pool.proveWithdraw({
+        note,
+        recipient: relayedRecipient,
+        relayer: registryId,
+        fee: 0n,
+      });
+
+      // Build the blind payload + job draft
+      const payload = client.relayer.buildWithdrawPayload({ proof, recipient: relayedRecipient });
+      const deadlineLedger = await client.relayer.deadlineLedger();
+      const draft = client.relayer.buildJobDraft({
+        payload,
+        fee: 1_000_000n,
+        deadlineLedger,
+      });
+
+      // Escrow the job on-chain
+      await client.relayer.createJobForDraft(draft);
+
+      // Advertise, collect bids, pick a relayer
+      await client.relayer.advertise(draft);
+      const bids = await client.relayer.fetchBids(draft.jobIdHex);
+      const bid = client.relayer.pickBid(bids);
+      if (!bid) {
+        setRelayedProgress({ phase: "error", message: "No valid relayer bids yet — retry shortly." });
+        return;
+      }
+
+      // Deliver the encrypted payload
+      await client.relayer.deliverPayload({ draft, bid });
+
+      // Track status
+      const status = await client.relayer.jobStatus(draft.jobIdHex);
+      if (status === "submitted") {
+        await client.notes.markSpent(note.commitment);
+      }
+
+      setRelayedProgress({ phase: "done" });
+    } catch (err) {
+      setRelayedProgress({ phase: "error", message: err instanceof Error ? err.message : String(err) });
+    }
+  }, [client, relayedRecipient]);
+
+  // ── 6. Reputation Proof ──────────────────────────────────────────────────
+  const reputationProve = useCallback(async () => {
+    if (!client) return;
+    if (!client.artifacts) {
+      setReputationProgress({
+        phase: "unavailable",
+        reason:
+          "No circuit artifact resolver configured. Construct OpaqueClient with " +
+          "{ artifacts } (see OPAQUE_CIRCUITS_DIR in examples/node-quickstart.mjs) " +
+          "to enable real proof generation, or wire a precomputed proof bundle.",
+      });
+      return;
+    }
+
+    try {
+      setReputationProgress({ phase: "reconstructing-state" });
+      setReputationProgress({ phase: "generating-proof" });
+
+      const proof = await client.reputation.prove({
+        attestationId: BigInt(reputationAttestationId),
+        stealthPrivKey: Uint8Array.from(Buffer.from(reputationStealthPrivKey, "hex")),
+        externalNullifier: BigInt(reputationExternalNullifier),
+      });
+
+      await client.reputation.verifyOnChain(proof);
+      setReputationProgress({ phase: "done" });
+    } catch (err) {
+      setReputationProgress({ phase: "error", message: err instanceof Error ? err.message : String(err) });
+    }
+  }, [client, reputationAttestationId, reputationStealthPrivKey, reputationExternalNullifier]);
+
   return (
     <main style={{ fontFamily: "monospace", maxWidth: 640, margin: "2rem auto" }}>
       <h1>Opaque Cash — React Quickstart</h1>
@@ -250,6 +361,53 @@ export function App() {
         {proofProgress.phase === "done" && <p>Withdrawal confirmed.</p>}
         {proofProgress.phase === "unavailable" && <p>{proofProgress.reason}</p>}
         {proofProgress.phase === "error" && <p style={{ color: "crimson" }}>{proofProgress.message}</p>}
+      </section>
+
+      <section>
+        <h2>5. Relayed Withdraw</h2>
+        <input
+          value={relayedRecipient}
+          onChange={(e) => setRelayedRecipient(e.target.value)}
+          placeholder="Recipient G-address"
+        />
+        <button onClick={relayedWithdraw} disabled={!client || !relayedRecipient}>
+          Relayed Withdraw
+        </button>
+        {relayedProgress.phase === "reconstructing-state" && <p>Reconstructing pool state from chain…</p>}
+        {relayedProgress.phase === "generating-proof" && <p>Generating zero-knowledge proof… (this can take a while)</p>}
+        {relayedProgress.phase === "done" && <p>Relayed withdrawal confirmed.</p>}
+        {relayedProgress.phase === "unavailable" && <p>{relayedProgress.reason}</p>}
+        {relayedProgress.phase === "error" && <p style={{ color: "crimson" }}>{relayedProgress.message}</p>}
+      </section>
+
+      <section>
+        <h2>6. Reputation Proof</h2>
+        <input
+          value={reputationAttestationId}
+          onChange={(e) => setReputationAttestationId(e.target.value)}
+          placeholder="Attestation ID"
+        />
+        <input
+          value={reputationStealthPrivKey}
+          onChange={(e) => setReputationStealthPrivKey(e.target.value)}
+          placeholder="Stealth private key (hex)"
+        />
+        <input
+          value={reputationExternalNullifier}
+          onChange={(e) => setReputationExternalNullifier(e.target.value)}
+          placeholder="External nullifier"
+        />
+        <button
+          onClick={reputationProve}
+          disabled={!client || !reputationAttestationId || !reputationStealthPrivKey}
+        >
+          Prove Reputation
+        </button>
+        {reputationProgress.phase === "reconstructing-state" && <p>Preparing witness…</p>}
+        {reputationProgress.phase === "generating-proof" && <p>Generating zero-knowledge proof… (this can take a while)</p>}
+        {reputationProgress.phase === "done" && <p>Reputation proof verified on-chain.</p>}
+        {reputationProgress.phase === "unavailable" && <p>{reputationProgress.reason}</p>}
+        {reputationProgress.phase === "error" && <p style={{ color: "crimson" }}>{reputationProgress.message}</p>}
       </section>
     </main>
   );

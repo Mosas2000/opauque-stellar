@@ -6,7 +6,7 @@ export default defineConfig({
   description:
     "Stealth private payments, privacy pools, relayer-market submission, and on-chain ZK reputation for Stellar / Soroban.",
   cleanUrls: true,
-  ignoreDeadLinks: true,
+  ignoreDeadLinks: false,
   themeConfig: {
     nav: [
       { text: "Guide", link: "/guide/getting-started" },

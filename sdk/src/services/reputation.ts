@@ -1,9 +1,10 @@
 /**
  * On-chain ZK reputation. Submit a V2 Groth16 proof to the reputation-verifier
  * (root validity + nullifier-replay enforced on-chain), read the latest published
- * root, and attest (delegated to the schema service). Proof *generation* needs the
- * proving layer (snarkjs + circuit artifacts + scanner) and is surfaced as a
- * not-wired capability in this build: bring a precomputed proof to verifyOnChain.
+ * root, and attest (delegated to the schema service). Proof generation requires
+ * an artifact resolver (snarkjs + circuit artifacts); use {@link prove} or
+ * {@link proveAndVerify} when configured, or bring a precomputed proof to
+ * {@link verifyOnChain}.
  */
 import { NotWiredError } from "../errors/index";
 import type { VerifyReputationInputs } from "../contracts/verifier";
