@@ -1,6 +1,6 @@
-# React Quickstart (#575)
+# React Quickstart
 
-A minimal React app wiring **connect → receive → deposit → withdraw** through
+A minimal React app wiring **connect → receive → deposit → withdraw → relayer → reputation** through
 `@opaquecash/stellar` against Stellar **testnet**. Companion to
 [`examples/node-quickstart.mjs`](../node-quickstart.mjs) — that one is
 offline/scriptable; this one shows the same flow through a real wallet
@@ -28,7 +28,7 @@ proof-generation progress states a real app needs to show a user.
    npm install
    npm run dev
    ```
-6. Open the printed local URL, click through the four sections in order.
+6. Open the printed local URL, click through the six sections in order.
 
 ## What each step does
 
@@ -49,6 +49,11 @@ proof-generation progress states a real app needs to show a user.
    }` — see `OPAQUE_CIRCUITS_DIR` in `../node-quickstart.mjs` for the same
    gate — to enable this step for real; otherwise the UI reports it's
    unavailable rather than silently failing, exactly like the Node example.
+5. **Relayed Withdraw** — demonstrates the [Relayer Market](/integrate/relayer-market)
+   flow: generates a withdrawal proof bound to the registry contract, builds a
+   blind payload, escrows the job on-chain, and delivers to a staked relayer.
+6. **Reputation Proof** — demonstrates the [ZK Reputation](/integrate/reputation)
+   flow: generates a V2 reputation proof and verifies it on-chain.
 
 ## Notes
 

@@ -3,7 +3,7 @@
   "private": true,
   "version": "0.0.0",
   "type": "module",
-  "description": "Minimal React example wiring connect/receive/deposit/withdraw through @opaquecash/stellar (#575).",
+  "description": "Minimal React example wiring connect/receive/deposit/withdraw/relayer/reputation through @opaquecash/stellar.",
   "scripts": {
     "dev": "vite",
     "build": "tsc -b --noEmit && vite build",
