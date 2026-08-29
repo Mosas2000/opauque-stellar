@@ -146,8 +146,7 @@ this repo), driving the real SDK services, crypto, and relayer-protocol code.
 ## Versioning
 
 This package follows semantic versioning and a published deprecation policy —
-see [Versioning & Deprecation Policy](./docs/reference/versioning.md) and
-[`CHANGELOG.md`](./CHANGELOG.md). Every change to the public API ships with a
+see [`CHANGELOG.md`](./CHANGELOG.md). Every change to the public API ships with a
 changeset and a changelog entry.
 
 ## License
